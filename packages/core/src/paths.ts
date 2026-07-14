@@ -22,6 +22,18 @@ export function resolveDbPath(cwd: string = process.cwd()): { dbPath: string; pr
   return { dbPath: join(kddHome(), hash, 'kdd.db'), projectPath: common };
 }
 
+export function resolveDecisionsDir(cwd: string = process.cwd()): string {
+  if (process.env.KDD_DECISIONS_DIR) return process.env.KDD_DECISIONS_DIR;
+  let top: string;
+  try {
+    top = execFileSync('git', ['rev-parse', '--show-toplevel'],
+      { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+  } catch {
+    throw new KddError('not in a git repository (kdd resolves .planning via git)');
+  }
+  return join(top, '.planning', 'decisions');
+}
+
 export function listProjects(): { dbPath: string; projectPath: string }[] {
   const home = kddHome();
   if (!existsSync(home)) return [];

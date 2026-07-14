@@ -4,4 +4,6 @@ export * from './paths.js';
 export * from './state.js';
 export * from './types.js';
 export * from './ops.js';
+export * from './decisions.js';
+export * from './recall.js';
 export * from './queries.js';

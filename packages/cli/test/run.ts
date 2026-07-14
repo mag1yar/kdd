@@ -8,7 +8,12 @@ const BIN = fileURLToPath(new URL('../dist/index.js', import.meta.url));
 
 export function makeEnv(): NodeJS.ProcessEnv {
   const dir = mkdtempSync(join(tmpdir(), 'kdd-cli-'));
-  return { ...process.env, KDD_DB: join(dir, 'kdd.db'), KDD_ACTOR: '' };
+  return {
+    ...process.env,
+    KDD_DB: join(dir, 'kdd.db'),
+    KDD_DECISIONS_DIR: join(dir, 'decisions'),
+    KDD_ACTOR: '',
+  };
 }
 
 export function kdd(env: NodeJS.ProcessEnv, ...args: string[]): string {

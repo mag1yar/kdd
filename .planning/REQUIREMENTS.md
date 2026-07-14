@@ -21,9 +21,9 @@ Scope of this milestone: пользователь вручную ведёт ка
 
 ### Decisions & Recall (DEC)
 
-- [ ] **DEC-01**: `kdd decide "title"` создаёт md-решение в `.planning/decisions/YYYY-MM-DD-slug.md` (Decision/Rationale/Alternatives/Supersedes/Outcome) и индексирует его
-- [ ] **DEC-02**: `kdd recall "query"` ищет по решениям и задачам через FTS5 BM25, top-k с капом; повторная запись того же контента возвращает success «уже записано» (content-hash)
-- [ ] **DEC-03**: `kdd rebuild` полностью пересобирает индекс из md-файлов и SQLite; md-директория самодостаточна (exit-гарантия)
+- [x] **DEC-01**: `kdd decide "title"` создаёт md-решение в `.planning/decisions/YYYY-MM-DD-slug.md` (Decision/Rationale/Alternatives/Supersedes/Outcome) и индексирует его
+- [x] **DEC-02**: `kdd recall "query"` ищет по решениям и задачам через FTS5 BM25, top-k с капом; повторная запись того же контента возвращает success «уже записано» (content-hash)
+- [x] **DEC-03**: `kdd rebuild` полностью пересобирает индекс из md-файлов и SQLite; md-директория самодостаточна (exit-гарантия)
 
 ### Web UI (UI)
 
@@ -69,9 +69,9 @@ Scope of this milestone: пользователь вручную ведёт ка
 | CLI-03 | Phase 1 | Complete |
 | CLI-04 | Phase 1 | Complete |
 | CLI-05 | Phase 1 | Complete |
-| DEC-01 | Phase 2 | Pending |
-| DEC-02 | Phase 2 | Pending |
-| DEC-03 | Phase 2 | Pending |
+| DEC-01 | Phase 2 | Complete |
+| DEC-02 | Phase 2 | Complete |
+| DEC-03 | Phase 2 | Complete |
 | UI-01 | Phase 3 | Pending |
 | UI-02 | Phase 3 | Pending |
 | UI-03 | Phase 3 | Pending |

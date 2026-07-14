@@ -2,12 +2,13 @@
 import { Command } from 'commander';
 import { readFileSync } from 'node:fs';
 import {
-  KddError, addTask, archiveTask, blockTask, boardData, commentTask, editTask,
-  exportBoard, linkTasks, listProjects, moveTask, statusDigest, taskDetail,
+  KddError, addDecision, addTask, archiveTask, blockTask, boardData, commentTask,
+  editTask, exportBoard, linkTasks, listProjects, moveTask, rebuild, recall,
+  resolveDecisionsDir, statusDigest, taskDetail,
   unarchiveTask, unblockTask, type Status,
 } from '@kddkit/core';
 import { fail, getActor, parseId, withDb } from './context.js';
-import { renderBoard, renderShow, renderStatus } from './render.js';
+import { renderBoard, renderRecall, renderShow, renderStatus } from './render.js';
 
 const program = new Command()
   .name('kdd')
@@ -40,6 +41,23 @@ program.command('add')
     const t = withDb((db) => addTask(db,
       { title, body: readBody(o), priority: o.priority, area: o.area }, getActor()));
     out(o.json, t, () => `#${t.id} created`);
+  }));
+
+program.command('decide')
+  .argument('<title>')
+  .option('--decision <t>').option('--rationale <t>').option('--alternatives <t>')
+  .option('--outcome <t>').option('--supersedes <slug>')
+  .option('--body <md>', 'full md body, or "-" for stdin')
+  .option('--body-file <path>')
+  .option('--json')
+  .action((title, o) => run(o.json, () => {
+    const r = withDb((db) => addDecision(db, resolveDecisionsDir(), {
+      title, decision: o.decision, rationale: o.rationale,
+      alternatives: o.alternatives, outcome: o.outcome,
+      supersedes: o.supersedes, body: readBody(o),
+    }));
+    out(o.json, r, () =>
+      r.created ? `decided: ${r.slug}\n${r.path}` : `already recorded: ${r.slug}`);
   }));
 
 program.command('board')
@@ -128,6 +146,24 @@ program.command('unarchive')
   .action((id, o) => run(o.json, () => {
     const t = withDb((db) => unarchiveTask(db, parseId(id), getActor()));
     out(o.json, t, () => `#${t.id} unarchived`);
+  }));
+
+program.command('recall')
+  .argument('<query>')
+  .option('-k, --limit <n>', 'max results', '10')
+  .option('--kind <kind>', 'decision|task')
+  .option('--json')
+  .action((query, o) => run(o.json, () => {
+    const hits = withDb((db) => recall(db, resolveDecisionsDir(), query,
+      { k: Number(o.limit), kind: o.kind }));
+    out(o.json, hits, () => renderRecall(hits));
+  }));
+
+program.command('rebuild')
+  .option('--json')
+  .action((o) => run(o.json, () => {
+    const r = withDb((db) => rebuild(db, resolveDecisionsDir()));
+    out(o.json, r, () => `rebuilt: ${r.decisions} decisions, ${r.tasks} tasks indexed`);
   }));
 
 program.command('status')

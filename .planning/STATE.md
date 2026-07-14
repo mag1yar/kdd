@@ -3,10 +3,10 @@ gsd_state_version: '1.0'
 status: executing
 progress:
   total_phases: 4
-  completed_phases: 1
-  total_plans: 1
-  completed_plans: 1
-  percent: 25
+  completed_phases: 2
+  total_plans: 2
+  completed_plans: 2
+  percent: 50
 ---
 
 # Project State
@@ -16,16 +16,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-14)
 
 **Core value:** Ничего не забывается и не нарушается: задачи, решения и контекст проекта хранятся вне окна контекста, достаются по запросу (pull) и одинаково видны из любого worktree.
-**Current focus:** Phase 1 — Store & CLI Core
+**Current focus:** Phase 2 — Decisions & Recall
 
 ## Current Position
 
-Phase: 1 of 4 (Store & CLI Core) — DONE
-Plan: 1 of 1 complete (docs/superpowers/plans/2026-07-14-kdd-phase1.md)
-Status: Phase 1 complete; ready to plan Phase 2 (decisions/recall)
-Last activity: 2026-07-14 — Phase 1 executed: monorepo (@kddkit/core, @kddkit/cli), SQLite store, state machine, 13 CLI verbs, 40 tests green
+Phase: 2 of 4 (Decisions & Recall) — DONE
+Plan: 1 of 1 complete (docs/superpowers/plans/2026-07-14-kdd-phase2-decisions-recall.md)
+Status: Phase 2 complete; ready to plan Phase 3 (web kanban)
+Last activity: 2026-07-14 — Phase 2 executed: decisions as md, FTS5 search_index, kdd decide/recall/rebuild, 84 tests green
 
-Progress: [██▌░░░░░░░] 25%
+Progress: [█████░░░░░] 50%
 
 ## Performance Metrics
 
@@ -77,5 +77,5 @@ Items acknowledged and carried forward from previous milestone close:
 ## Session Continuity
 
 Last session: 2026-07-14
-Stopped at: Phase 1 complete on branch phase-1-store-cli (awaiting merge decision)
+Stopped at: Phase 2 complete on branch phase-2-decisions-recall (awaiting merge decision)
 Resume file: None

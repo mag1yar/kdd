@@ -54,6 +54,25 @@ export const MIGRATIONS: string[] = [
   CREATE INDEX idx_comments_task ON comments(task_id, created_at);
   CREATE INDEX idx_events_task ON events(task_id, created_at);
   `,
+  `
+  CREATE TABLE decisions (
+    slug          TEXT PRIMARY KEY,
+    title         TEXT NOT NULL,
+    path          TEXT NOT NULL,
+    content_hash  TEXT NOT NULL,
+    created       TEXT,
+    superseded_by TEXT
+  );
+  CREATE INDEX idx_decisions_hash ON decisions(content_hash);
+  CREATE VIRTUAL TABLE search_index USING fts5(
+    kind UNINDEXED,
+    ref UNINDEXED,
+    title,
+    body,
+    tokenize = 'unicode61 remove_diacritics 2'
+  );
+  INSERT OR IGNORE INTO meta (key, value) VALUES ('fts_last_event_id', '0');
+  `,
 ];
 
 export function openDb(dbPath: string, projectPath?: string): Database.Database {

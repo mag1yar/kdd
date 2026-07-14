@@ -43,4 +43,15 @@ describe('output contracts (CLI-05)', () => {
     expect(Buffer.byteLength(s, 'utf8')).toBeLessThanOrEqual(16_384);
     expect(s).toContain('chars]');
   });
+
+  it('recall output stays under 4KB even with many fat hits', { timeout: 60_000 }, () => {
+    for (let i = 0; i < 30; i++) {
+      kdd(env, 'add', `omega search target ${i} ${'lorem ipsum dolor '.repeat(10)}`,
+        '--body', `omega body ${i} ${'consectetur adipiscing elit sed do '.repeat(5)}`);
+    }
+    const out = kdd(env, 'recall', 'omega', '-k', '30');
+    expect(Buffer.byteLength(out, 'utf8')).toBeLessThanOrEqual(4096);
+    expect(out).toMatch(/\(\+\d+ more, use -k\)/);
+    expect(EMOJI.test(out)).toBe(false);
+  });
 });

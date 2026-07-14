@@ -1,4 +1,7 @@
-import { STATUSES, now, type Comment, type EventRow, type Status, type Task } from '@kddkit/core';
+import {
+  STATUSES, now,
+  type Comment, type EventRow, type RecallHit, type Status, type Task,
+} from '@kddkit/core';
 
 export function cap(s: string, n: number): string {
   if (s.length <= n) return s;
@@ -69,6 +72,28 @@ export function renderShow(d: {
       `${e.detail ? ` ${e.detail}` : ''}`);
   }
   return lines.join('\n');
+}
+
+const MAX_RECALL = 4096;
+
+export function renderRecall(hits: RecallHit[]): string {
+  if (hits.length === 0) return 'no results';
+  const line = (h: RecallHit): string => {
+    const snip = h.snippet.replace(/\s+/g, ' ').trim();
+    if (h.kind === 'decision') {
+      const tag = h.superseded_by ? ` [superseded by ${h.superseded_by}]` : '';
+      return `decision ${h.ref}${tag} ${cap(h.title, 60)} — ${snip}`;
+    }
+    return `task #${h.ref} [${h.status ?? '?'}] ${cap(h.title, 60)} — ${snip}`;
+  };
+  const all = hits.map(line);
+  const shown = [...all];
+  while (shown.length > 1 &&
+         Buffer.byteLength(shown.join('\n'), 'utf8') > MAX_RECALL - 32) {
+    shown.pop();
+  }
+  if (shown.length < all.length) shown.push(`(+${all.length - shown.length} more, use -k)`);
+  return shown.join('\n');
 }
 
 export function renderStatus(d: {

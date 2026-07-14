@@ -14,7 +14,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Store & CLI Core** - Central per-project SQLite store outside git plus the CLI verbs for managing the task board from any worktree
 - [x] **Phase 2: Decisions & Recall** - Decisions as committed markdown, FTS5 recall across decisions and tasks, rebuildable index
-- [ ] **Phase 3: Web Kanban** - Minimal local kanban UI over the same store: drag-n-drop, task create/edit, comments
+- [x] **Phase 3: Web Kanban** - Minimal local kanban UI over the same store: drag-n-drop, task create/edit, comments
 - [ ] **Phase 4: Claude Integration & Packaging** - Thin MCP, skill contract, SessionStart hook, installable Claude Code plugin
 
 ## Phase Details
@@ -77,5 +77,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 |-------|----------------|--------|-----------|
 | 1. Store & CLI Core | 1/1 | Complete | 2026-07-14 |
 | 2. Decisions & Recall | 1/1 | Complete | 2026-07-14 |
-| 3. Web Kanban | 0/TBD | Not started | - |
+| 3. Web Kanban | 1/1 | Complete | 2026-07-15 |
 | 4. Claude Integration & Packaging | 0/TBD | Not started | - |

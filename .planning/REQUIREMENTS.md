@@ -27,10 +27,10 @@ Scope of this milestone: пользователь вручную ведёт ка
 
 ### Web UI (UI)
 
-- [ ] **UI-01**: `kdd ui` поднимает локальный сервер (Hono) с канбан-доской: колонки по статусам, drag-n-drop двигает задачу через ту же стейт-машину
-- [ ] **UI-02**: Пользователь может создать и отредактировать задачу в UI: title, markdown-описание (с рендером), приоритет
-- [ ] **UI-03**: Пользователь может комментировать задачу в UI; комментарии от `user` и `ai` визуально различимы
-- [ ] **UI-04**: Изменения, сделанные Claude через CLI, видны в UI без перезапуска (поллинг/refresh)
+- [x] **UI-01**: `kdd ui` поднимает локальный сервер (Hono) с канбан-доской: колонки по статусам, drag-n-drop двигает задачу через ту же стейт-машину
+- [x] **UI-02**: Пользователь может создать и отредактировать задачу в UI: title, markdown-описание (с рендером), приоритет
+- [x] **UI-03**: Пользователь может комментировать задачу в UI; комментарии от `user` и `ai` визуально различимы
+- [x] **UI-04**: Изменения, сделанные Claude через CLI, видны в UI без перезапуска (поллинг/refresh)
 
 ### Claude Integration (INT)
 
@@ -72,10 +72,10 @@ Scope of this milestone: пользователь вручную ведёт ка
 | DEC-01 | Phase 2 | Complete |
 | DEC-02 | Phase 2 | Complete |
 | DEC-03 | Phase 2 | Complete |
-| UI-01 | Phase 3 | Pending |
-| UI-02 | Phase 3 | Pending |
-| UI-03 | Phase 3 | Pending |
-| UI-04 | Phase 3 | Pending |
+| UI-01 | Phase 3 | Complete |
+| UI-02 | Phase 3 | Complete |
+| UI-03 | Phase 3 | Complete |
+| UI-04 | Phase 3 | Complete |
 | INT-01 | Phase 4 | Pending |
 | INT-02 | Phase 4 | Pending |
 | INT-03 | Phase 4 | Pending |

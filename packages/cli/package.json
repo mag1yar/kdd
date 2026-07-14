@@ -7,7 +7,7 @@
     "build": "tsup src/index.ts --format esm --clean",
     "test": "vitest run --passWithNoTests"
   },
-  "dependencies": { "@kddkit/core": "workspace:*", "commander": "^15.0.0" },
+  "dependencies": { "@kddkit/core": "workspace:*", "@kddkit/ui": "workspace:*", "commander": "^15.0.0" },
   "devDependencies": {
     "@types/node": "^22.18.0",
     "tsup": "^8.5.1",

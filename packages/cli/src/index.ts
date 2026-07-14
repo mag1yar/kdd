@@ -3,10 +3,11 @@ import { Command } from 'commander';
 import { readFileSync } from 'node:fs';
 import {
   KddError, addDecision, addTask, archiveTask, blockTask, boardData, commentTask,
-  editTask, exportBoard, linkTasks, listProjects, moveTask, rebuild, recall,
-  resolveDecisionsDir, statusDigest, taskDetail,
+  editTask, exportBoard, linkTasks, listProjects, moveTask, openDb, rebuild, recall,
+  resolveDbPath, resolveDecisionsDir, statusDigest, taskDetail,
   unarchiveTask, unblockTask, type Status,
 } from '@kddkit/core';
+import { startUi } from '@kddkit/ui';
 import { fail, getActor, parseId, withDb } from './context.js';
 import { renderBoard, renderRecall, renderShow, renderStatus } from './render.js';
 
@@ -171,6 +172,14 @@ program.command('status')
   .action((o) => run(o.json, () => {
     const d = withDb((db) => statusDigest(db));
     out(o.json, d, () => renderStatus(d));
+  }));
+
+program.command('ui')
+  .option('--port <n>', 'port', '4499')
+  .action((o) => run(false, () => {
+    const { dbPath, projectPath } = resolveDbPath();
+    const db = openDb(dbPath, projectPath); // живёт, пока жив сервер
+    void startUi(db, Number(o.port)).then(({ url }) => console.log(`kdd ui: ${url}`));
   }));
 
 program.command('projects')

@@ -6,18 +6,18 @@ Scope of this milestone: пользователь вручную ведёт ка
 
 ### Store (STORE)
 
-- [ ] **STORE-01**: Центральная SQLite-база на проект живёт вне репо (`~/.kdd/<hash(git-common-dir)>/kdd.db`, WAL); из любого worktree проекта резолвится одна и та же база
-- [ ] **STORE-02**: Схема содержит `tasks` (seq-ID, title, body md, status, priority, created/updated), append-only `events` (task_id, actor_type, actor_id, action, detail, session_id, ts) и `errors`
-- [ ] **STORE-03**: Переходы статусов валидируются чистой функцией-стейт-машиной в write-path; недопустимый переход отклоняется с внятной ошибкой и не пишется
-- [ ] **STORE-04**: Каждая мутация задачи порождает event с actor_type (`user`|`ai`) и session_id; лента задачи выводима одним запросом
+- [x] **STORE-01**: Центральная SQLite-база на проект живёт вне репо (`~/.kdd/<hash(git-common-dir)>/kdd.db`, WAL); из любого worktree проекта резолвится одна и та же база
+- [x] **STORE-02**: Схема содержит `tasks` (seq-ID, title, body md, status, priority, created/updated), append-only `events` (task_id, actor_type, actor_id, action, detail, session_id, ts) и `errors`
+- [x] **STORE-03**: Переходы статусов валидируются чистой функцией-стейт-машиной в write-path; недопустимый переход отклоняется с внятной ошибкой и не пишется
+- [x] **STORE-04**: Каждая мутация задачи порождает event с actor_type (`user`|`ai`) и session_id; лента задачи выводима одним запросом
 
 ### CLI (CLI)
 
-- [ ] **CLI-01**: Пользователь/Claude может создать задачу: `kdd add "title" [--body md] [--priority]` → короткий ID `#N`
-- [ ] **CLI-02**: `kdd board` рендерит доску текстом (колонки → задачи), `kdd show #N` — полную задачу с комментариями и лентой
-- [ ] **CLI-03**: `kdd move #N <status>` и `kdd edit #N` изменяют задачу через стейт-машину; `kdd comment #N "text"` добавляет комментарий с автором
-- [ ] **CLI-04**: `kdd status` выдаёт digest проекта ≤2KB (текущие in-progress, blocked, последние события)
-- [ ] **CLI-05**: Весь вывод CLI капирован и без декора (ноль эмодзи/баннеров); контракт размеров зафиксирован в спеке и проверяется тестом
+- [x] **CLI-01**: Пользователь/Claude может создать задачу: `kdd add "title" [--body md] [--priority]` → короткий ID `#N`
+- [x] **CLI-02**: `kdd board` рендерит доску текстом (колонки → задачи), `kdd show #N` — полную задачу с комментариями и лентой
+- [x] **CLI-03**: `kdd move #N <status>` и `kdd edit #N` изменяют задачу через стейт-машину; `kdd comment #N "text"` добавляет комментарий с автором
+- [x] **CLI-04**: `kdd status` выдаёт digest проекта ≤2KB (текущие in-progress, blocked, последние события)
+- [x] **CLI-05**: Весь вывод CLI капирован и без декора (ноль эмодзи/баннеров); контракт размеров зафиксирован в спеке и проверяется тестом
 
 ### Decisions & Recall (DEC)
 
@@ -60,15 +60,15 @@ Scope of this milestone: пользователь вручную ведёт ка
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| STORE-01 | Phase 1 | Pending |
-| STORE-02 | Phase 1 | Pending |
-| STORE-03 | Phase 1 | Pending |
-| STORE-04 | Phase 1 | Pending |
-| CLI-01 | Phase 1 | Pending |
-| CLI-02 | Phase 1 | Pending |
-| CLI-03 | Phase 1 | Pending |
-| CLI-04 | Phase 1 | Pending |
-| CLI-05 | Phase 1 | Pending |
+| STORE-01 | Phase 1 | Complete |
+| STORE-02 | Phase 1 | Complete |
+| STORE-03 | Phase 1 | Complete |
+| STORE-04 | Phase 1 | Complete |
+| CLI-01 | Phase 1 | Complete |
+| CLI-02 | Phase 1 | Complete |
+| CLI-03 | Phase 1 | Complete |
+| CLI-04 | Phase 1 | Complete |
+| CLI-05 | Phase 1 | Complete |
 | DEC-01 | Phase 2 | Pending |
 | DEC-02 | Phase 2 | Pending |
 | DEC-03 | Phase 2 | Pending |

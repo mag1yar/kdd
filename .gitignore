@@ -1,1 +1,5 @@
 .claude-flow/
+node_modules/
+dist/
+.turbo/
+.superpowers/

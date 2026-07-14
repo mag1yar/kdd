@@ -1,0 +1,11 @@
+{
+  "name": "kdd-monorepo",
+  "private": true,
+  "packageManager": "pnpm@11.0.9",
+  "engines": { "node": ">=22" },
+  "devDependencies": { "turbo": "^2.10.5", "typescript": "^5.9.3" },
+  "scripts": {
+    "build": "turbo run build",
+    "test": "turbo run test"
+  }
+}

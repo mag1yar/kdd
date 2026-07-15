@@ -1,0 +1,17 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "kddkit",
+  "description": "Kanban + memory substrate for humans and Claude.",
+  "owner": {
+    "name": "kddkit",
+    "url": "https://github.com/mag1yar"
+  },
+  "plugins": [
+    {
+      "name": "kddkit",
+      "source": "./",
+      "description": "Task board, decisions and project context that survive sessions, branches and worktrees. Claude reads and writes via MCP; you drive the board via CLI + web UI.",
+      "category": "productivity"
+    }
+  ]
+}

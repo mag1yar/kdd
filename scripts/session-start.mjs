@@ -1,17 +1,15 @@
 // SessionStart pointer for KDD. Never throws; always exits 0.
 // Prints <=3 lines; records failures in the errors table when the db is reachable.
-import { createRequire } from 'node:module';
-
 const POINTER = 'KDD substrate active. Tools: list_tasks, recall (MCP). Board UI: kdd ui.';
 
 async function main() {
   let core;
   try {
-    const require = createRequire(import.meta.url);
-    // resolve @kddkit/core relative to this plugin root
-    core = await import(require.resolve('@kddkit/core'));
+    // Load the committed core bundle by path — a real plugin install has no
+    // node_modules/@kddkit/core, so resolving by package name would always miss.
+    core = await import(new URL('../packages/core/dist/index.js', import.meta.url));
   } catch {
-    console.log(POINTER); // core not installed yet — bare pointer
+    console.log(POINTER); // core bundle unreadable — bare pointer
     return;
   }
 

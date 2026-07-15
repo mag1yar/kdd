@@ -15,7 +15,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 1: Store & CLI Core** - Central per-project SQLite store outside git plus the CLI verbs for managing the task board from any worktree
 - [x] **Phase 2: Decisions & Recall** - Decisions as committed markdown, FTS5 recall across decisions and tasks, rebuildable index
 - [x] **Phase 3: Web Kanban** - Minimal local kanban UI over the same store: drag-n-drop, task create/edit, comments
-- [ ] **Phase 4: Claude Integration & Packaging** - Thin MCP, skill contract, SessionStart hook, installable Claude Code plugin
+- [x] **Phase 4: Claude Integration & Packaging** - Thin MCP, skill contract, SessionStart hook, installable Claude Code plugin
 
 ## Phase Details
 
@@ -66,7 +66,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   2. The skill contract teaches Claude the pull protocol (when to run status/recall, how to comment and decide) including the Iron Law: no mass board edits without a user request
   3. A fresh Claude session shows a ≤3-line SessionStart hook pointer to `kdd status` / `kdd recall`; the hook always exits 0 and its failures land in the `errors` table
   4. The plugin installs as a Claude Code plugin (skills + MCP + CLI via npx) and works on Windows
-**Plans**: TBD
+**Plans**: docs/superpowers/plans/2026-07-15-kdd-phase4-claude-integration.md
 
 ## Progress
 
@@ -78,4 +78,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | 1. Store & CLI Core | 1/1 | Complete | 2026-07-14 |
 | 2. Decisions & Recall | 1/1 | Complete | 2026-07-14 |
 | 3. Web Kanban | 1/1 | Complete | 2026-07-15 |
-| 4. Claude Integration & Packaging | 0/TBD | Not started | - |
+| 4. Claude Integration & Packaging | 1/1 | Complete | 2026-07-15 |

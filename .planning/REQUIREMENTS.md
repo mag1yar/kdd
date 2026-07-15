@@ -34,10 +34,10 @@ Scope of this milestone: пользователь вручную ведёт ка
 
 ### Claude Integration (INT)
 
-- [ ] **INT-01**: Тонкий MCP-сервер выставляет 3–4 тула поверх того же ядра (get_task, list_tasks/board, update_task, recall) для UI-сервера и не-CLI сценариев
-- [ ] **INT-02**: Skill-контракт учит Claude протоколу доски: pull-модель, когда читать status/recall, как писать комментарии и решения, Iron Laws (никаких массовых правок доски без запроса пользователя)
-- [ ] **INT-03**: SessionStart-хук ≤3 строк сообщает «субстрат есть: kdd status / kdd recall», всегда exit 0, ошибки — в таблицу errors
-- [ ] **INT-04**: Плагин устанавливается как Claude Code plugin (skills + MCP + CLI через npx), работает на Windows
+- [x] **INT-01**: Тонкий MCP-сервер выставляет 3–4 тула поверх того же ядра (get_task, list_tasks/board, update_task, recall) для UI-сервера и не-CLI сценариев
+- [x] **INT-02**: Skill-контракт учит Claude протоколу доски: pull-модель, когда читать status/recall, как писать комментарии и решения, Iron Laws (никаких массовых правок доски без запроса пользователя)
+- [x] **INT-03**: SessionStart-хук ≤3 строк сообщает «субстрат есть: kdd status / kdd recall», всегда exit 0, ошибки — в таблицу errors
+- [x] **INT-04**: Плагин устанавливается как Claude Code plugin (skills + MCP + CLI через npx), работает на Windows
 
 ## v2 Requirements (deferred)
 
@@ -76,9 +76,9 @@ Scope of this milestone: пользователь вручную ведёт ка
 | UI-02 | Phase 3 | Complete |
 | UI-03 | Phase 3 | Complete |
 | UI-04 | Phase 3 | Complete |
-| INT-01 | Phase 4 | Pending |
-| INT-02 | Phase 4 | Pending |
-| INT-03 | Phase 4 | Pending |
-| INT-04 | Phase 4 | Pending |
+| INT-01 | Phase 4 | Complete |
+| INT-02 | Phase 4 | Complete |
+| INT-03 | Phase 4 | Complete |
+| INT-04 | Phase 4 | Complete |
 
 **Coverage:** 20/20 v1 requirements mapped. No orphans, no duplicates.

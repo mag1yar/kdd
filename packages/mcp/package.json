@@ -1,0 +1,23 @@
+{
+  "name": "@kddkit/mcp",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./dist/main.js",
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@kddkit/core": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^22.18.0",
+    "better-sqlite3": "^12.11.1",
+    "tsup": "^8.5.1",
+    "vitest": "^4.1.10"
+  }
+}

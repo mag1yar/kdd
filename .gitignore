@@ -3,3 +3,6 @@ node_modules/
 dist/
 .turbo/
 .superpowers/
+!packages/core/dist/
+!packages/cli/dist/
+!packages/mcp/dist/

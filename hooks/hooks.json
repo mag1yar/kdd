@@ -1,0 +1,17 @@
+{
+  "description": "KDD substrate SessionStart pointer and native-dep install",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|clear|compact|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/smart-install.mjs\" && node \"${CLAUDE_PLUGIN_ROOT}/scripts/session-start.mjs\"",
+            "timeout": 300
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,53 @@
+import { describe, it, expect } from 'vitest';
+import { addTask, openDb } from '@kddkit/core';
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { createServer } from '../src/server.js';
+
+const ai = { type: 'ai', id: 'smoke' } as const;
+
+async function connect(db: ReturnType<typeof openDb>) {
+  const dir = mkdtempSync(join(tmpdir(), 'kdd-mcp-'));
+  const server = createServer(db, dir, ai);
+  const [clientT, serverT] = InMemoryTransport.createLinkedPair();
+  await server.connect(serverT);
+  const client = new Client({ name: 'test', version: '0' });
+  await client.connect(clientT);
+  return client;
+}
+
+const textOf = (res: any) => JSON.parse(res.content[0].text);
+
+describe('mcp server over a real transport', () => {
+  it('lists the four tools', async () => {
+    const client = await connect(openDb(':memory:', 'x'));
+    const names = (await client.listTools()).tools.map((t) => t.name).sort();
+    expect(names).toEqual(['get_task', 'list_tasks', 'recall', 'update_task']);
+  });
+
+  it('list_tasks returns grouped rows', async () => {
+    const db = openDb(':memory:', 'x');
+    addTask(db, { title: 'hello' }, { type: 'user' });
+    const client = await connect(db);
+    const res = await client.callTool({ name: 'list_tasks', arguments: {} });
+    expect(textOf(res).new[0].title).toBe('hello');
+  });
+
+  it('update_task mutates and reports isError on bad input', async () => {
+    const db = openDb(':memory:', 'x');
+    const t = addTask(db, { title: 'm' }, { type: 'user' });
+    const client = await connect(db);
+    const ok = await client.callTool({
+      name: 'update_task', arguments: { id: t.id, move: { to: 'in_progress' } },
+    });
+    expect(textOf(ok).status).toBe('in_progress');
+    const bad = await client.callTool({
+      name: 'update_task', arguments: { id: t.id, move: { to: 'done' } },
+    });
+    expect(bad.isError).toBe(true);
+    expect(bad.content[0].text).toMatch(/invalid transition/);
+  });
+});

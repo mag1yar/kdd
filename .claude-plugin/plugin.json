@@ -1,0 +1,8 @@
+{
+  "name": "kdd",
+  "version": "0.1.0",
+  "description": "Kanban + memory substrate for humans and Claude: task board, decisions and project context that survive sessions, branches and worktrees.",
+  "author": { "name": "kddkit" },
+  "license": "MIT",
+  "keywords": ["kanban", "memory", "tasks", "decisions", "mcp", "substrate"]
+}

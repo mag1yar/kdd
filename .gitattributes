@@ -1,0 +1,3 @@
+# Committed build output ships with LF; keep git from flipping it to CRLF on
+# Windows so a rebuild (tsup writes LF) never shows a spurious "modified" dist.
+packages/*/dist/** eol=lf

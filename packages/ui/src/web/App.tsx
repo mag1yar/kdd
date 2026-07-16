@@ -18,18 +18,20 @@ export default function App() {
   }, []);
   useEffect(() => { refetch(); }, [refetch, version]); // поллинг: version растёт → рефетч (UI-04)
 
-  const onMove = (taskId: number, to: Status) => {
-    setBoard((b) => { // оптимистично: карточка сразу в новой колонке
+  const onMove = (taskId: number, to: Status, order: number[]) => {
+    setBoard((b) => { // оптимистично: карточка в новой колонке + порядок как order
       if (!b) return b;
       const task = STATUSES.flatMap((s) => b[s]).find((t) => t.id === taskId);
-      if (!task || task.status === to) return b;
+      if (!task) return b;
       const next = Object.fromEntries(
         STATUSES.map((s) => [s, b[s].filter((t) => t.id !== taskId)]),
       ) as BoardData;
-      next[to] = [...next[to], { ...task, status: to }];
+      const rank = new Map(order.map((id, i) => [id, i]));
+      next[to] = [...next[to], { ...task, status: to }]
+        .sort((a, c) => (rank.get(a.id) ?? 0) - (rank.get(c.id) ?? 0));
       return next;
     });
-    moveTask(taskId, to)
+    moveTask(taskId, to, order)
       .catch((e: Error) => toast.error(e.message)) // refetch в finally откатит
       .finally(refetch);
   };

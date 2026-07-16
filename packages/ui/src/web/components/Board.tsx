@@ -1,7 +1,8 @@
+import { arrayMove } from '@dnd-kit/sortable';
 import {
-  DndContext, PointerSensor, useDraggable, useDroppable, useSensor, useSensors,
-  type DragEndEvent,
-} from '@dnd-kit/core';
+  Kanban, KanbanBoard, KanbanColumn, KanbanColumnContent, KanbanItem,
+  KanbanItemHandle, KanbanOverlay, type KanbanMoveEvent,
+} from '@/components/reui/kanban';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { STATUSES, type Board as BoardData, type Priority, type Status, type Task } from '../api';
@@ -9,67 +10,103 @@ import { STATUSES, type Board as BoardData, type Priority, type Status, type Tas
 const PRIORITY_VARIANT: Record<Priority, 'default' | 'secondary' | 'destructive' | 'outline'> =
   { urgent: 'destructive', high: 'default', medium: 'secondary', low: 'outline' };
 
+const COLUMN_TITLE: Record<Status, string> = {
+  backlog: 'Backlog', new: 'New', in_progress: 'In Progress', review: 'Review', done: 'Done',
+};
+
 export function Board({ board, onMove, onOpen }: {
   board: BoardData;
-  onMove: (taskId: number, to: Status) => void;
+  onMove: (taskId: number, to: Status, order: number[]) => void;
   onOpen: (id: number) => void;
 }) {
-  // distance 5px: иначе клик по карточке считается драгом и onClick не срабатывает
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
-  const onDragEnd = (e: DragEndEvent) => {
-    const to = e.over?.id as Status | undefined;
-    if (to) onMove(Number(e.active.id), to);
+  const byId = (id: string) =>
+    STATUSES.flatMap((s) => board[s]).find((t) => String(t.id) === id);
+
+  const handleMove = (
+    { activeContainer, overContainer, activeIndex, overIndex, event }: KanbanMoveEvent,
+  ) => {
+    const id = Number(event.active.id);
+    const to = overContainer as Status;
+    const destIds = board[to].map((t) => t.id);
+    // Итоговый порядок колонки-назначения: reorder внутри → arrayMove; из другой → вставка по индексу.
+    const order = activeContainer === overContainer
+      ? arrayMove(destIds, activeIndex, overIndex)
+      : (destIds.splice(Math.min(Math.max(overIndex, 0), destIds.length), 0, id), destIds);
+    if (activeContainer === overContainer && activeIndex === overIndex) return; // ничего не двигали
+    onMove(id, to, order);
   };
+
   return (
-    <DndContext sensors={sensors} onDragEnd={onDragEnd}>
-      <div className="flex items-start gap-4 p-4">
-        {STATUSES.map((s) => <Column key={s} status={s} tasks={board[s]} onOpen={onOpen} />)}
-      </div>
-    </DndContext>
+    <Kanban
+      value={board}
+      onValueChange={() => {}} // состояние доски ведёт App (оптимистично + рефетч), не local reorder
+      getItemValue={(t) => String(t.id)}
+      onMove={handleMove}
+    >
+      <KanbanBoard className="flex items-start gap-4 p-4">
+        {STATUSES.map((s) => (
+          <Column key={s} status={s} tasks={board[s]} onOpen={onOpen} />
+        ))}
+      </KanbanBoard>
+      <KanbanOverlay>
+        {({ value }) => {
+          const t = byId(String(value));
+          return t ? <div className="w-64"><TaskCard task={t} onOpen={onOpen} /></div> : null;
+        }}
+      </KanbanOverlay>
+    </Kanban>
   );
 }
 
 function Column({ status, tasks, onOpen }: {
   status: Status; tasks: Task[]; onOpen: (id: number) => void;
 }) {
-  const { setNodeRef, isOver } = useDroppable({ id: status });
+  // Колонки семантические (backlog…done) — без drag: не рендерим KanbanColumnHandle.
+  // disabled НЕ ставим: dnd-kit disabled вырубает и drop → пустая колонка перестаёт принимать карточки.
   return (
-    <div
-      ref={setNodeRef}
-      className={cn('w-64 shrink-0 rounded-lg bg-muted/50 p-2', isOver && 'ring-2 ring-ring')}
-    >
-      <div className="flex items-center justify-between px-1 pb-2 text-sm font-medium">
-        <span>{status}</span>
-        <span className="text-muted-foreground">{tasks.length}</span>
+    <KanbanColumn value={status} className="w-64 shrink-0 rounded-xl bg-muted/40 p-2 ring-1 ring-foreground/10">
+      <div className="flex items-center justify-between px-1.5 py-1">
+        <span className="text-sm font-semibold">{COLUMN_TITLE[status]}</span>
+        <Badge variant="outline" className="rounded-sm">{tasks.length}</Badge>
       </div>
-      <div className="flex min-h-8 flex-col gap-2">
-        {tasks.map((t) => <TaskCard key={t.id} task={t} onOpen={onOpen} />)}
-      </div>
-    </div>
+      <KanbanColumnContent value={status} className="min-h-8 gap-2 p-0.5">
+        {tasks.map((t) => <TaskCard key={t.id} task={t} onOpen={onOpen} asHandle />)}
+      </KanbanColumnContent>
+    </KanbanColumn>
   );
 }
 
-function TaskCard({ task, onOpen }: { task: Task; onOpen: (id: number) => void }) {
-  const { setNodeRef, attributes, listeners, transform, isDragging } =
-    useDraggable({ id: task.id });
-  return (
+function TaskCard({ task, onOpen, asHandle }: {
+  task: Task; onOpen: (id: number) => void; asHandle?: boolean;
+}) {
+  const card = (
     <div
-      ref={setNodeRef}
-      {...attributes}
-      {...listeners}
-      style={transform ? { transform: `translate(${transform.x}px, ${transform.y}px)` } : undefined}
       className={cn(
-        'cursor-grab rounded-md border bg-card p-2 text-sm shadow-sm',
-        isDragging && 'relative z-10 opacity-70',
+        'cursor-grab rounded-lg bg-card p-2.5 text-sm shadow-sm ring-1 ring-foreground/10',
+        'transition-shadow hover:shadow-md',
       )}
       onClick={() => onOpen(task.id)}
     >
-      <div className="flex items-center gap-2">
-        <span className="text-muted-foreground">#{task.id}</span>
-        <Badge variant={PRIORITY_VARIANT[task.priority]}>{task.priority}</Badge>
-        {task.blocked === 1 && <Badge variant="destructive">blocked</Badge>}
+      <div className="flex items-start justify-between gap-2">
+        <span className="line-clamp-2 font-medium">{task.title}</span>
+        <Badge
+          variant={PRIORITY_VARIANT[task.priority]}
+          className="pointer-events-none h-5 shrink-0 rounded-sm px-1.5 text-xs capitalize"
+        >
+          {task.priority}
+        </Badge>
       </div>
-      <div className="pt-1">{task.title}</div>
+      <div className="flex items-center gap-2 pt-2 text-xs text-muted-foreground">
+        <span>#{task.id}</span>
+        {task.blocked === 1 && (
+          <Badge variant="destructive" className="h-5 rounded-sm px-1.5 text-xs">blocked</Badge>
+        )}
+      </div>
     </div>
+  );
+  return (
+    <KanbanItem value={String(task.id)}>
+      {asHandle ? <KanbanItemHandle className="cursor-grab">{card}</KanbanItemHandle> : card}
+    </KanbanItem>
   );
 }

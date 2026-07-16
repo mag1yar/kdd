@@ -40,9 +40,10 @@ export function addTask(
   return db.transaction(() => {
     const ts = now();
     const r = db.prepare(
-      `INSERT INTO tasks (title, body, priority, area, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-    ).run(input.title, input.body ?? null, priority, input.area ?? null, ts, ts);
+      `INSERT INTO tasks (title, body, priority, area, position, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    ).run(input.title, input.body ?? null, priority, input.area ?? null,
+      nextPosition(db, 'new'), ts, ts);
     const id = Number(r.lastInsertRowid);
     appendEvent(db, id, actor, 'created');
     return mustGetTask(db, id);
@@ -89,6 +90,14 @@ function checkStatus(s: string): asserts s is Status {
   }
 }
 
+// Следующая свободная позиция в конце колонки (порядок на доске = position).
+function nextPosition(db: Database.Database, status: Status): number {
+  return (db.prepare(
+    `SELECT COALESCE(MAX(position), -1) + 1 AS p
+     FROM tasks WHERE status = ? AND archived_at IS NULL`,
+  ).get(status) as { p: number }).p;
+}
+
 export function moveTask(
   db: Database.Database, id: number, to: string, actor: Actor, reason?: string,
 ): Task {
@@ -97,8 +106,8 @@ export function moveTask(
     const t = mustGetTask(db, id);
     const res = checkMove(t.status, to, actor, reason);
     if (!res.ok) throw new KddError(res.error);
-    db.prepare(`UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?`)
-      .run(to, now(), id);
+    db.prepare(`UPDATE tasks SET status = ?, position = ?, updated_at = ? WHERE id = ?`)
+      .run(to, nextPosition(db, to), now(), id); // CLI-move дописывает в конец колонки
     appendEvent(db, id, actor, 'moved',
       reason ? { from: t.status, to, reason } : { from: t.status, to });
     if (reason) {
@@ -106,6 +115,27 @@ export function moveTask(
         `INSERT INTO comments (task_id, author, body, created_at) VALUES (?, ?, ?, ?)`,
       ).run(id, authorOf(actor), reason, now());
     }
+    return mustGetTask(db, id);
+  })();
+}
+
+// Расстановка колонки-назначения по явному порядку id (drag на доске).
+// Смена статуса → checkMove + событие moved; чистый reorder внутри колонки — без события.
+export function placeTask(
+  db: Database.Database, id: number, to: string, orderedIds: number[], actor: Actor,
+): Task {
+  checkStatus(to);
+  return db.transaction(() => {
+    const t = mustGetTask(db, id);
+    if (t.status !== to) {
+      const res = checkMove(t.status, to, actor);
+      if (!res.ok) throw new KddError(res.error);
+      appendEvent(db, id, actor, 'moved', { from: t.status, to });
+    }
+    const setPos = db.prepare(`UPDATE tasks SET position = ? WHERE id = ?`);
+    orderedIds.forEach((tid, i) => setPos.run(i, tid));
+    db.prepare(`UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?`)
+      .run(to, now(), id);
     return mustGetTask(db, id);
   })();
 }

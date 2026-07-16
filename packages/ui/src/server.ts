@@ -5,7 +5,7 @@ import type Database from 'better-sqlite3';
 import { serve } from '@hono/node-server';
 import { Hono, type Context } from 'hono';
 import {
-  KddError, addTask, boardData, commentTask, editTask, moveTask, taskDetail,
+  KddError, addTask, boardData, commentTask, editTask, moveTask, placeTask, taskDetail,
   type Priority,
 } from '@kddkit/core';
 
@@ -63,7 +63,13 @@ export function createApp(db: Database.Database): Hono {
 
   app.post('/api/tasks/:id/move', async (c) => {
     const b = await jsonBody(c);
-    return c.json(moveTask(db, taskId(c), String(b.to ?? ''), USER));
+    const to = String(b.to ?? '');
+    // order: полный порядок id колонки-назначения (drag на доске). Нет order → CLI-подобный move в конец.
+    if (Array.isArray(b.order)) {
+      const order = b.order.map(Number).filter(Number.isInteger);
+      return c.json(placeTask(db, taskId(c), to, order, USER));
+    }
+    return c.json(moveTask(db, taskId(c), to, USER));
   });
 
   app.post('/api/tasks/:id/comments', async (c) => {

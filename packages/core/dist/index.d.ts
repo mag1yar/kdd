@@ -83,6 +83,7 @@ declare function editTask(db: Database.Database, id: number, patch: {
 }, actor: Actor): Task;
 declare function commentTask(db: Database.Database, id: number, body: string, actor: Actor): Comment;
 declare function moveTask(db: Database.Database, id: number, to: string, actor: Actor, reason?: string): Task;
+declare function placeTask(db: Database.Database, id: number, to: string, orderedIds: number[], actor: Actor): Task;
 declare function blockTask(db: Database.Database, id: number, reason: string, actor: Actor): Task;
 declare function unblockTask(db: Database.Database, id: number, actor: Actor): Task;
 declare function linkTasks(db: Database.Database, fromId: number, toId: number, kind: string, actor: Actor): void;
@@ -164,4 +165,4 @@ declare function exportBoard(db: Database.Database): {
     events: EventRow[];
 };
 
-export { type Actor, type Comment, type DecisionInput, type EventRow, KddError, MIGRATIONS, PRIORITIES, type ParsedDecision, type Priority, type RecallHit, STATUSES, type Status, TRANSITIONS, type Task, addDecision, addTask, appendEvent, archiveTask, authorOf, blockTask, boardData, checkMove, commentTask, contentHash, editTask, exportBoard, kddHome, linkTasks, listProjects, logError, moveTask, mustGetTask, now, openDb, parseDecisionMd, rebuild, recall, renderDecisionBody, renderDecisionMd, resolveDbPath, resolveDecisionsDir, sanitizeQuery, slugify, statusDigest, syncIndex, taskDetail, unarchiveTask, unblockTask };
+export { type Actor, type Comment, type DecisionInput, type EventRow, KddError, MIGRATIONS, PRIORITIES, type ParsedDecision, type Priority, type RecallHit, STATUSES, type Status, TRANSITIONS, type Task, addDecision, addTask, appendEvent, archiveTask, authorOf, blockTask, boardData, checkMove, commentTask, contentHash, editTask, exportBoard, kddHome, linkTasks, listProjects, logError, moveTask, mustGetTask, now, openDb, parseDecisionMd, placeTask, rebuild, recall, renderDecisionBody, renderDecisionMd, resolveDbPath, resolveDecisionsDir, sanitizeQuery, slugify, statusDigest, syncIndex, taskDetail, unarchiveTask, unblockTask };

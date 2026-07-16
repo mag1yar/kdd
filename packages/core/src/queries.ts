@@ -16,7 +16,7 @@ export function boardData(
   if (f.status) { where.push('status = ?'); params.push(f.status); }
   const rows = db.prepare(
     `SELECT * FROM tasks WHERE ${where.join(' AND ')}
-     ORDER BY ${PRIORITY_ORDER}, position, created_at`,
+     ORDER BY position, ${PRIORITY_ORDER}, created_at`,
   ).all(...params) as Task[];
   const out = Object.fromEntries(STATUSES.map((s) => [s, [] as Task[]])) as Record<Status, Task[]>;
   for (const r of rows) out[r.status].push(r);

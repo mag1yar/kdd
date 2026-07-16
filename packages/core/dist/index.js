@@ -208,9 +208,17 @@ function addTask(db, input, actor) {
   return db.transaction(() => {
     const ts = now();
     const r = db.prepare(
-      `INSERT INTO tasks (title, body, priority, area, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?)`
-    ).run(input.title, input.body ?? null, priority, input.area ?? null, ts, ts);
+      `INSERT INTO tasks (title, body, priority, area, position, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      input.title,
+      input.body ?? null,
+      priority,
+      input.area ?? null,
+      nextPosition(db, "new"),
+      ts,
+      ts
+    );
     const id = Number(r.lastInsertRowid);
     appendEvent(db, id, actor, "created");
     return mustGetTask(db, id);
@@ -244,13 +252,19 @@ function checkStatus(s) {
     throw new KddError(`invalid status '${s}'; allowed: ${STATUSES.join(", ")}`);
   }
 }
+function nextPosition(db, status) {
+  return db.prepare(
+    `SELECT COALESCE(MAX(position), -1) + 1 AS p
+     FROM tasks WHERE status = ? AND archived_at IS NULL`
+  ).get(status).p;
+}
 function moveTask(db, id, to, actor, reason) {
   checkStatus(to);
   return db.transaction(() => {
     const t = mustGetTask(db, id);
     const res = checkMove(t.status, to, actor, reason);
     if (!res.ok) throw new KddError(res.error);
-    db.prepare(`UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?`).run(to, now(), id);
+    db.prepare(`UPDATE tasks SET status = ?, position = ?, updated_at = ? WHERE id = ?`).run(to, nextPosition(db, to), now(), id);
     appendEvent(
       db,
       id,
@@ -263,6 +277,21 @@ function moveTask(db, id, to, actor, reason) {
         `INSERT INTO comments (task_id, author, body, created_at) VALUES (?, ?, ?, ?)`
       ).run(id, authorOf(actor), reason, now());
     }
+    return mustGetTask(db, id);
+  })();
+}
+function placeTask(db, id, to, orderedIds, actor) {
+  checkStatus(to);
+  return db.transaction(() => {
+    const t = mustGetTask(db, id);
+    if (t.status !== to) {
+      const res = checkMove(t.status, to, actor);
+      if (!res.ok) throw new KddError(res.error);
+      appendEvent(db, id, actor, "moved", { from: t.status, to });
+    }
+    const setPos = db.prepare(`UPDATE tasks SET position = ? WHERE id = ?`);
+    orderedIds.forEach((tid, i) => setPos.run(i, tid));
+    db.prepare(`UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?`).run(to, now(), id);
     return mustGetTask(db, id);
   })();
 }
@@ -528,7 +557,7 @@ function boardData(db, f = {}) {
   }
   const rows = db.prepare(
     `SELECT * FROM tasks WHERE ${where.join(" AND ")}
-     ORDER BY ${PRIORITY_ORDER}, position, created_at`
+     ORDER BY position, ${PRIORITY_ORDER}, created_at`
   ).all(...params);
   const out = Object.fromEntries(STATUSES.map((s) => [s, []]));
   for (const r of rows) out[r.status].push(r);
@@ -599,6 +628,7 @@ export {
   now,
   openDb,
   parseDecisionMd,
+  placeTask,
   rebuild,
   recall,
   renderDecisionBody,

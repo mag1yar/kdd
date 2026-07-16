@@ -27,7 +27,7 @@ export const createTask = (b: { title: string; body?: string; priority?: Priorit
   req<Task>('/api/tasks', { method: 'POST', body: JSON.stringify(b) });
 export const editTask = (id: number, b: { title?: string; body?: string; priority?: Priority }) =>
   req<Task>(`/api/tasks/${id}`, { method: 'PATCH', body: JSON.stringify(b) });
-export const moveTask = (id: number, to: Status) =>
-  req<Task>(`/api/tasks/${id}/move`, { method: 'POST', body: JSON.stringify({ to }) });
+export const moveTask = (id: number, to: Status, order?: number[]) =>
+  req<Task>(`/api/tasks/${id}/move`, { method: 'POST', body: JSON.stringify({ to, order }) });
 export const addComment = (id: number, body: string) =>
   req<Comment>(`/api/tasks/${id}/comments`, { method: 'POST', body: JSON.stringify({ body }) });

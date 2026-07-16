@@ -61,7 +61,7 @@ git clone https://github.com/mag1yar/kddkit.git
 cd kddkit
 pnpm install
 pnpm build
-pnpm --filter @kddkit/cli link --global   # puts `kdd` on your PATH
+(cd packages/cli && npm link)   # puts `kdd` on your PATH (subshell: no cd back needed)
 ```
 
 Then, **from inside the project you are working on** (the store is per-repo):

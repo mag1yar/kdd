@@ -6,5 +6,12 @@
   "homepage": "https://github.com/mag1yar/kddkit",
   "repository": "https://github.com/mag1yar/kddkit",
   "license": "MIT",
-  "keywords": ["kanban", "memory", "tasks", "decisions", "mcp", "substrate"]
+  "keywords": ["kanban", "memory", "tasks", "decisions", "mcp", "substrate"],
+  "mcpServers": {
+    "kdd": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/packages/mcp/dist/main.js"]
+    }
+  }
 }

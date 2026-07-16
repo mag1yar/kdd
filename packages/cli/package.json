@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "type": "module",
   "bin": { "kdd": "./dist/index.js" },
+  "files": ["dist"],
   "scripts": {
     "build": "tsup src/index.ts --format esm --clean",
     "test": "vitest run --passWithNoTests"

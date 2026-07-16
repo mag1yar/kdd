@@ -53,8 +53,16 @@ pointer confirming the substrate is active.
 ## Using the board (human side)
 
 Claude uses kddkit automatically once the plugin is active. To *see* and edit the
-board yourself you need the `kdd` CLI + web UI. It is not published to npm yet,
-so build it from source:
+board yourself you need the `kdd` CLI + web UI:
+
+```bash
+npm i -g @kddkit/cli   # puts `kdd` on your PATH
+# or without installing:
+npx @kddkit/cli ui
+```
+
+<details>
+<summary>Build from source instead</summary>
 
 ```bash
 git clone https://github.com/mag1yar/kddkit.git
@@ -63,6 +71,8 @@ pnpm install
 pnpm build
 (cd packages/cli && npm link)   # puts `kdd` on your PATH (subshell: no cd back needed)
 ```
+
+</details>
 
 Then, **from inside the project you are working on** (the store is per-repo):
 

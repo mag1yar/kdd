@@ -7,14 +7,21 @@
   "files": [
     "dist"
   ],
-  "publishConfig": { "access": "public" },
+  "publishConfig": {
+    "access": "public"
+  },
   "license": "MIT",
-  "repository": { "type": "git", "url": "https://github.com/mag1yar/kddkit.git", "directory": "packages/ui" },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mag1yar/kddkit.git",
+    "directory": "packages/ui"
+  },
   "scripts": {
     "build": "tsup src/server.ts --format esm --dts --clean && vite build",
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
+    "@base-ui/react": "^1.6.0",
     "@hono/node-server": "^1.19.0",
     "@kddkit/core": "workspace:*",
     "hono": "^4.9.0"
@@ -31,7 +38,6 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "lucide-react": "^1.24.0",
-    "radix-ui": "^1.6.2",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "react-markdown": "^10.1.0",

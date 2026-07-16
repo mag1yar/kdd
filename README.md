@@ -112,8 +112,7 @@ you.
 ## Layout
 
 ```
-.claude-plugin/    plugin + marketplace manifests
-.mcp.json          MCP server wiring (${CLAUDE_PLUGIN_ROOT})
+.claude-plugin/    plugin + marketplace manifests (MCP server wired here)
 hooks/             SessionStart: smart-install + pointer
 skills/kdd/        the pull-protocol contract
 scripts/           smart-install.mjs, session-start.mjs

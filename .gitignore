@@ -6,3 +6,4 @@ dist/
 !packages/core/dist/
 !packages/cli/dist/
 !packages/mcp/dist/
+*.tgz

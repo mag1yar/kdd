@@ -55,7 +55,7 @@ export default function App() {
   const refetch = useCallback(() => {
     getBoard(track ?? undefined).then(setBoard).catch((e: Error) => toast.error(e.message));
   }, [track]);
-  useEffect(() => { refetch(); }, [refetch, version]); // поллинг: version растёт → рефетч (UI-04)
+  useEffect(() => { refetch(); void loadTracks(); }, [refetch, version, loadTracks]); // поллинг: version растёт → рефетч доски + счётчиков треков (UI-04)
 
   const onMove = (taskId: number, to: Status, order: number[]) => {
     setBoard((b) => { // оптимистично: карточка в новой колонке + порядок как order

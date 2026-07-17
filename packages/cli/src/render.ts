@@ -1,6 +1,6 @@
 import {
   STATUSES, now,
-  type Comment, type EventRow, type RecallHit, type Status, type Task,
+  type Comment, type EventRow, type RecallHit, type Status, type Task, type Track,
 } from '@kddkit/core';
 
 export function cap(s: string, n: number): string {
@@ -94,6 +94,14 @@ export function renderRecall(hits: RecallHit[]): string {
   }
   if (shown.length < all.length) shown.push(`(+${all.length - shown.length} more, use -k)`);
   return shown.join('\n');
+}
+
+export function renderTracks(ts: (Track & { open_tasks: number })[]): string {
+  if (ts.length === 0) return 'no tracks';
+  return ts.map((t) => {
+    const head = `#${t.id} ${t.name} (${t.open_tasks})${t.status === 'done' ? ' DONE' : ''}`;
+    return t.description ? `${head}\n  ${cap(t.description, 200)}` : head;
+  }).join('\n');
 }
 
 export function renderStatus(d: {

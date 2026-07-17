@@ -3,6 +3,7 @@ import { now } from './db.js';
 import { KddError } from './errors.js';
 import { checkMove, PRIORITIES, STATUSES, type Actor, type Priority, type Status } from './state.js';
 import type { Comment, Task } from './types.js';
+import { mustGetTrack } from './tracks.js';
 
 export const authorOf = (a: Actor): string => (a.type === 'ai' ? `ai:${a.id ?? '?'}` : 'user');
 
@@ -31,18 +32,19 @@ function checkPriority(p: string): asserts p is Priority {
 
 export function addTask(
   db: Database.Database,
-  input: { title: string; body?: string; priority?: Priority; area?: string },
+  input: { title: string; body?: string; priority?: Priority; area?: string; track_id?: number },
   actor: Actor,
 ): Task {
   const priority = input.priority ?? 'medium';
   checkPriority(priority);
   if (!input.title.trim()) throw new KddError('title must not be empty');
+  if (input.track_id != null) mustGetTrack(db, input.track_id);
   return db.transaction(() => {
     const ts = now();
     const r = db.prepare(
-      `INSERT INTO tasks (title, body, priority, area, position, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    ).run(input.title, input.body ?? null, priority, input.area ?? null,
+      `INSERT INTO tasks (title, body, priority, area, track_id, position, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(input.title, input.body ?? null, priority, input.area ?? null, input.track_id ?? null,
       nextPosition(db, 'new'), ts, ts);
     const id = Number(r.lastInsertRowid);
     appendEvent(db, id, actor, 'created');
@@ -52,10 +54,11 @@ export function addTask(
 
 export function editTask(
   db: Database.Database, id: number,
-  patch: { title?: string; body?: string; priority?: Priority; area?: string },
+  patch: { title?: string; body?: string; priority?: Priority; area?: string; track_id?: number | null },
   actor: Actor,
 ): Task {
   if (patch.priority !== undefined) checkPriority(patch.priority);
+  if (patch.track_id != null) mustGetTrack(db, patch.track_id);
   const fields = (Object.keys(patch) as (keyof typeof patch)[])
     .filter((k) => patch[k] !== undefined);
   if (fields.length === 0) throw new KddError('nothing to edit');

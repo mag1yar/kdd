@@ -5,8 +5,9 @@ import type Database from 'better-sqlite3';
 import { serve } from '@hono/node-server';
 import { Hono, type Context } from 'hono';
 import {
-  KddError, addTask, blockTask, boardData, commentTask, editTask, kddHome, listProjects,
-  moveTask, openDb, placeTask, taskDetail, unblockTask, type Priority,
+  KddError, addTask, blockTask, boardData, commentTask, createTrack, deleteTrack, editTask,
+  editTrack, kddHome, listProjects, listTracks, moveTask, openDb, placeTask, taskDetail,
+  unblockTask, type Priority,
 } from '@kddkit/core';
 
 const hashOf = (dbPath: string) => basename(dirname(dbPath));
@@ -65,7 +66,34 @@ export function createApp(
     listProjects().map((p) => ({ id: hashOf(p.dbPath), path: p.projectPath })),
   ));
 
-  app.get('/api/board', (c) => c.json(boardData(getDb(c))));
+  app.get('/api/tracks', (c) => c.json(listTracks(getDb(c), { status: 'active' })));
+
+  app.post('/api/tracks', async (c) => {
+    const b = await jsonBody(c);
+    return c.json(createTrack(getDb(c), {
+      name: String(b.name ?? ''), description: b.description as string | undefined,
+    }));
+  });
+
+  app.patch('/api/tracks/:id', async (c) => {
+    const b = await jsonBody(c);
+    return c.json(editTrack(getDb(c), taskId(c), {
+      name: b.name as string | undefined,
+      description: b.description as string | undefined,
+      status: b.status as 'active' | 'done' | undefined,
+    }));
+  });
+
+  app.delete('/api/tracks/:id', (c) => {
+    deleteTrack(getDb(c), taskId(c));
+    return c.json({ ok: true });
+  });
+
+  app.get('/api/board', (c) => {
+    const track = Number(c.req.query('track'));
+    return c.json(boardData(getDb(c),
+      Number.isInteger(track) && track > 0 ? { track_id: track } : {}));
+  });
 
   app.get('/api/version', (c) => c.json({
     version: (getDb(c).prepare(`SELECT COALESCE(MAX(id), 0) AS v FROM events`)
@@ -80,6 +108,7 @@ export function createApp(
       title: String(b.title ?? ''),
       body: b.body as string | undefined,
       priority: b.priority as Priority | undefined,
+      track_id: b.track_id as number | undefined,
     }, USER));
   });
 
@@ -89,6 +118,7 @@ export function createApp(
       title: b.title as string | undefined,
       body: b.body as string | undefined,
       priority: b.priority as Priority | undefined,
+      track_id: b.track_id as number | null | undefined,
     }, USER));
   });
 

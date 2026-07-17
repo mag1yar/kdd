@@ -25,7 +25,7 @@ describe('mcp server over a real transport', () => {
   it('lists the four tools', async () => {
     const client = await connect(openDb(':memory:', 'x'));
     const names = (await client.listTools()).tools.map((t) => t.name).sort();
-    expect(names).toEqual(['get_task', 'list_tasks', 'recall', 'update_task']);
+    expect(names).toEqual(['get_task', 'list_tasks', 'list_tracks', 'recall', 'update_task']);
   });
 
   it('list_tasks returns grouped rows', async () => {

@@ -14,8 +14,9 @@ const COLUMN_TITLE: Record<Status, string> = {
   backlog: 'Backlog', new: 'New', in_progress: 'In Progress', review: 'Review', done: 'Done',
 };
 
-export function Board({ board, onMove, onOpen }: {
+export function Board({ board, trackName, onMove, onOpen }: {
   board: BoardData;
+  trackName: Map<number, string>;
   onMove: (taskId: number, to: Status, order: number[]) => void;
   onOpen: (id: number) => void;
 }) {
@@ -45,21 +46,23 @@ export function Board({ board, onMove, onOpen }: {
     >
       <KanbanBoard className="flex items-start gap-4 p-4">
         {STATUSES.map((s) => (
-          <Column key={s} status={s} tasks={board[s]} onOpen={onOpen} />
+          <Column key={s} status={s} tasks={board[s]} trackName={trackName} onOpen={onOpen} />
         ))}
       </KanbanBoard>
       <KanbanOverlay>
         {({ value }) => {
           const t = byId(String(value));
-          return t ? <div className="w-64"><TaskCard task={t} onOpen={onOpen} /></div> : null;
+          return t
+            ? <div className="w-64"><TaskCard task={t} trackName={trackName} onOpen={onOpen} /></div>
+            : null;
         }}
       </KanbanOverlay>
     </Kanban>
   );
 }
 
-function Column({ status, tasks, onOpen }: {
-  status: Status; tasks: Task[]; onOpen: (id: number) => void;
+function Column({ status, tasks, trackName, onOpen }: {
+  status: Status; tasks: Task[]; trackName: Map<number, string>; onOpen: (id: number) => void;
 }) {
   // Колонки семантические (backlog…done) — без drag: не рендерим KanbanColumnHandle.
   // disabled НЕ ставим: dnd-kit disabled вырубает и drop → пустая колонка перестаёт принимать карточки.
@@ -70,15 +73,18 @@ function Column({ status, tasks, onOpen }: {
         <Badge variant="outline" className="rounded-sm">{tasks.length}</Badge>
       </div>
       <KanbanColumnContent value={status} className="min-h-8 gap-2 p-0.5">
-        {tasks.map((t) => <TaskCard key={t.id} task={t} onOpen={onOpen} asHandle />)}
+        {tasks.map((t) => (
+          <TaskCard key={t.id} task={t} trackName={trackName} onOpen={onOpen} asHandle />
+        ))}
       </KanbanColumnContent>
     </KanbanColumn>
   );
 }
 
-function TaskCard({ task, onOpen, asHandle }: {
-  task: Task; onOpen: (id: number) => void; asHandle?: boolean;
+function TaskCard({ task, trackName, onOpen, asHandle }: {
+  task: Task; trackName: Map<number, string>; onOpen: (id: number) => void; asHandle?: boolean;
 }) {
+  const track = task.track_id != null ? trackName.get(task.track_id) : undefined;
   const card = (
     <div
       className={cn(
@@ -98,6 +104,11 @@ function TaskCard({ task, onOpen, asHandle }: {
       </div>
       <div className="flex items-center gap-2 pt-2 text-xs text-muted-foreground">
         <span>#{task.id}</span>
+        {track && (
+          <Badge variant="outline" className="h-5 max-w-[9rem] truncate rounded-sm px-1.5 text-xs">
+            {track}
+          </Badge>
+        )}
         {task.blocked === 1 && (
           <Badge variant="destructive" className="h-5 rounded-sm px-1.5 text-xs">blocked</Badge>
         )}

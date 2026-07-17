@@ -14,7 +14,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 import {
   PRIORITIES, STATUSES, addComment, blockTask, editTask, getTask, moveTask, unblockTask,
-  type EventRow, type Priority, type Status, type Task, type TaskDetail,
+  type EventRow, type Priority, type Status, type Task, type TaskDetail, type Track,
 } from '../api';
 
 const STATUS_LABEL: Record<Status, string> = {
@@ -36,8 +36,9 @@ function fmtEvent(e: EventRow): string {
 }
 const actorLabel = (e: EventRow) => (e.actor_type === 'ai' ? `ai:${e.actor_id}` : 'user');
 
-export function TaskDialog({ id, version, onClose, onChanged }: {
-  id: number | null; version: number; onClose: () => void; onChanged: () => void;
+export function TaskDialog({ id, version, tracks, onClose, onChanged }: {
+  id: number | null; version: number; tracks: Track[];
+  onClose: () => void; onChanged: () => void;
 }) {
   const [detail, setDetail] = useState<TaskDetail | null>(null);
   const [editing, setEditing] = useState(false);
@@ -183,6 +184,30 @@ export function TaskDialog({ id, version, onClose, onChanged }: {
             </Field>
 
             <BlockedField task={task} onChanged={after} />
+
+            {tracks.length > 0 && (
+              <Field label="Track">
+                <Select
+                  value={task.track_id === null ? 'none' : String(task.track_id)}
+                  onValueChange={(v) =>
+                    editTask(task.id, { track_id: v === 'none' ? null : Number(v) })
+                      .then(after).catch((e: Error) => toast.error(e.message))}
+                >
+                  <SelectTrigger className="h-8 w-full">
+                    <SelectValue placeholder="No track">
+                      {(v) => (v === 'none' ? 'No track'
+                        : tracks.find((t) => t.id === Number(v))?.name ?? '')}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">No track</SelectItem>
+                    {tracks.map((t) => (
+                      <SelectItem key={t.id} value={String(t.id)}>{t.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
+            )}
 
             {task.area && <Field label="Area"><span>{task.area}</span></Field>}
 

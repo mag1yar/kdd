@@ -4,13 +4,13 @@ import { readFileSync } from 'node:fs';
 import { basename, dirname } from 'node:path';
 import {
   KddError, addDecision, addTask, archiveTask, blockTask, boardData, commentTask,
-  editTask, exportBoard, linkTasks, listProjects, moveTask, openDb, rebuild, recall,
-  resolveDbPath, resolveDecisionsDir, statusDigest, taskDetail,
-  unarchiveTask, unblockTask, type Status,
+  createTrack, deleteTrack, editTask, editTrack, exportBoard, linkTasks, listProjects, listTracks,
+  moveTask, openDb, rebuild, recall, resolveDbPath, resolveDecisionsDir, statusDigest,
+  taskDetail, unarchiveTask, unblockTask, type Status,
 } from '@kddkit/core';
 import { projectPool, startUi } from '@kddkit/ui';
 import { fail, getActor, parseId, withDb } from './context.js';
-import { renderBoard, renderRecall, renderShow, renderStatus } from './render.js';
+import { renderBoard, renderRecall, renderShow, renderStatus, renderTracks } from './render.js';
 
 const program = new Command()
   .name('kdd')
@@ -38,10 +38,12 @@ program.command('add')
   .option('--body-file <path>')
   .option('--priority <p>', 'low|medium|high|urgent')
   .option('--area <area>')
+  .option('--track <id>', 'track id')
   .option('--json', 'machine-readable output')
   .action((title, o) => run(o.json, () => {
     const t = withDb((db) => addTask(db,
-      { title, body: readBody(o), priority: o.priority, area: o.area }, getActor()));
+      { title, body: readBody(o), priority: o.priority, area: o.area,
+        track_id: o.track ? parseId(o.track) : undefined }, getActor()));
     out(o.json, t, () => `#${t.id} created`);
   }));
 
@@ -65,11 +67,13 @@ program.command('decide')
 program.command('board')
   .option('--area <area>')
   .option('--status <s>')
+  .option('--track <id>', 'track id')
   .option('--archived', 'show archived tasks only')
   .option('--json')
   .action((o) => run(o.json, () => {
     const b = withDb((db) => boardData(db,
-      { area: o.area, status: o.status as Status | undefined, archived: o.archived }));
+      { area: o.area, status: o.status as Status | undefined, archived: o.archived,
+        track_id: o.track ? parseId(o.track) : undefined }));
     out(o.json, b, () => renderBoard(b));
   }));
 
@@ -94,10 +98,13 @@ program.command('edit')
   .argument('<id>')
   .option('--title <t>').option('--body <md>').option('--body-file <path>')
   .option('--priority <p>').option('--area <a>')
+  .option('--track <id>', 'track id, or "none" to detach')
   .option('--json')
   .action((id, o) => run(o.json, () => {
+    const track_id = o.track === undefined ? undefined : o.track === 'none' ? null : parseId(o.track);
     const t = withDb((db) => editTask(db, parseId(id),
-      { title: o.title, body: readBody(o), priority: o.priority, area: o.area }, getActor()));
+      { title: o.title, body: readBody(o), priority: o.priority, area: o.area, track_id },
+      getActor()));
     out(o.json, t, () => `#${t.id} updated`);
   }));
 
@@ -203,6 +210,59 @@ async function uiStart(port: number): Promise<void> {
   process.on('SIGINT', () => { closeAll(); process.exit(0); });
   console.log(`kdd ui: ${url}`);
 }
+
+const track = program.command('track').description('manage tracks (task groups)');
+
+track.command('add')
+  .argument('<name>')
+  .option('--description <t>', '"use when…" routing hint for the agent')
+  .option('--json')
+  .action((name, o) => run(o.json, () => {
+    const t = withDb((db) => createTrack(db, { name, description: o.description }));
+    out(o.json, t, () => `track #${t.id} ${t.name}`);
+  }));
+
+track.command('ls')
+  .option('--all', 'include completed tracks')
+  .option('--json')
+  .action((o) => run(o.json, () => {
+    const ts = withDb((db) => listTracks(db, o.all ? {} : { status: 'active' }));
+    out(o.json, ts, () => renderTracks(ts));
+  }));
+
+track.command('edit')
+  .argument('<id>')
+  .option('--name <t>').option('--description <t>')
+  .option('--json')
+  .action((id, o) => run(o.json, () => {
+    const t = withDb((db) => editTrack(db, parseId(id),
+      { name: o.name, description: o.description }));
+    out(o.json, t, () => `track #${t.id} updated`);
+  }));
+
+track.command('done')
+  .argument('<id>')
+  .option('--json')
+  .action((id, o) => run(o.json, () => {
+    const t = withDb((db) => editTrack(db, parseId(id), { status: 'done' }));
+    out(o.json, t, () => `track #${t.id} done`);
+  }));
+
+track.command('reopen')
+  .argument('<id>')
+  .option('--json')
+  .action((id, o) => run(o.json, () => {
+    const t = withDb((db) => editTrack(db, parseId(id), { status: 'active' }));
+    out(o.json, t, () => `track #${t.id} active`);
+  }));
+
+track.command('rm')
+  .argument('<id>')
+  .option('--json')
+  .action((id, o) => run(o.json, () => {
+    withDb((db) => deleteTrack(db, parseId(id))); // задачи отцепляются, память остаётся
+    out(o.json, { ok: true }, () => `track #${parseId(id)} deleted`);
+  }));
 
 program.command('projects')
   .option('--json')

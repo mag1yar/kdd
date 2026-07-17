@@ -44,10 +44,18 @@ interface Task {
     block_reason: string | null;
     priority: Priority;
     area: string | null;
+    track_id: number | null;
     position: number;
     archived_at: number | null;
     created_at: number;
     updated_at: number;
+}
+interface Track {
+    id: number;
+    name: string;
+    description: string | null;
+    status: 'active' | 'done';
+    created_at: number;
 }
 interface Comment {
     id: number;
@@ -74,12 +82,14 @@ declare function addTask(db: Database.Database, input: {
     body?: string;
     priority?: Priority;
     area?: string;
+    track_id?: number;
 }, actor: Actor): Task;
 declare function editTask(db: Database.Database, id: number, patch: {
     title?: string;
     body?: string;
     priority?: Priority;
     area?: string;
+    track_id?: number | null;
 }, actor: Actor): Task;
 declare function commentTask(db: Database.Database, id: number, body: string, actor: Actor): Comment;
 declare function moveTask(db: Database.Database, id: number, to: string, actor: Actor, reason?: string): Task;
@@ -89,6 +99,23 @@ declare function unblockTask(db: Database.Database, id: number, actor: Actor): T
 declare function linkTasks(db: Database.Database, fromId: number, toId: number, kind: string, actor: Actor): void;
 declare function archiveTask(db: Database.Database, id: number, actor: Actor): Task;
 declare function unarchiveTask(db: Database.Database, id: number, actor: Actor): Task;
+
+declare function mustGetTrack(db: Database.Database, id: number): Track;
+declare function createTrack(db: Database.Database, input: {
+    name: string;
+    description?: string;
+}): Track;
+declare function editTrack(db: Database.Database, id: number, patch: {
+    name?: string;
+    description?: string;
+    status?: 'active' | 'done';
+}): Track;
+declare function deleteTrack(db: Database.Database, id: number): void;
+declare function listTracks(db: Database.Database, opts?: {
+    status?: 'active' | 'done';
+}): (Track & {
+    open_tasks: number;
+})[];
 
 interface DecisionInput {
     title: string;
@@ -141,6 +168,7 @@ declare function boardData(db: Database.Database, f?: {
     area?: string;
     status?: Status;
     archived?: boolean;
+    track_id?: number;
 }): Record<Status, Task[]>;
 declare function taskDetail(db: Database.Database, id: number): {
     task: Task;
@@ -165,4 +193,4 @@ declare function exportBoard(db: Database.Database): {
     events: EventRow[];
 };
 
-export { type Actor, type Comment, type DecisionInput, type EventRow, KddError, MIGRATIONS, PRIORITIES, type ParsedDecision, type Priority, type RecallHit, STATUSES, type Status, TRANSITIONS, type Task, addDecision, addTask, appendEvent, archiveTask, authorOf, blockTask, boardData, checkMove, commentTask, contentHash, editTask, exportBoard, kddHome, linkTasks, listProjects, logError, moveTask, mustGetTask, now, openDb, parseDecisionMd, placeTask, rebuild, recall, renderDecisionBody, renderDecisionMd, resolveDbPath, resolveDecisionsDir, sanitizeQuery, slugify, statusDigest, syncIndex, taskDetail, unarchiveTask, unblockTask };
+export { type Actor, type Comment, type DecisionInput, type EventRow, KddError, MIGRATIONS, PRIORITIES, type ParsedDecision, type Priority, type RecallHit, STATUSES, type Status, TRANSITIONS, type Task, type Track, addDecision, addTask, appendEvent, archiveTask, authorOf, blockTask, boardData, checkMove, commentTask, contentHash, createTrack, deleteTrack, editTask, editTrack, exportBoard, kddHome, linkTasks, listProjects, listTracks, logError, moveTask, mustGetTask, mustGetTrack, now, openDb, parseDecisionMd, placeTask, rebuild, recall, renderDecisionBody, renderDecisionMd, resolveDbPath, resolveDecisionsDir, sanitizeQuery, slugify, statusDigest, syncIndex, taskDetail, unarchiveTask, unblockTask };

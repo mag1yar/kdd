@@ -27,7 +27,6 @@ describe('openDb', () => {
 
   it('migration 2 adds decisions, search_index and fts_last_event_id', () => {
     const db = openDb(':memory:', 'x');
-    expect(db.pragma('user_version', { simple: true })).toBe(2);
     const tables = db.prepare(
       `SELECT name FROM sqlite_master WHERE type='table' ORDER BY name`
     ).all().map((r: any) => r.name);
@@ -38,6 +37,16 @@ describe('openDb', () => {
                 VALUES ('decision', 's', 'hello world', 'greeting text')`).run();
     const hit = db.prepare(`SELECT ref FROM search_index WHERE search_index MATCH '"hello"'`).get();
     expect(hit).toEqual({ ref: 's' });
+  });
+
+  it('migration 3 adds tracks table and tasks.track_id', () => {
+    const db = openDb(':memory:', 'x');
+    const tables = db.prepare(
+      `SELECT name FROM sqlite_master WHERE type='table' ORDER BY name`
+    ).all().map((r: any) => r.name);
+    expect(tables).toEqual(expect.arrayContaining(['tracks']));
+    const cols = db.prepare(`PRAGMA table_info(tasks)`).all().map((r: any) => r.name);
+    expect(cols).toContain('track_id');
   });
 
   it('migrates an existing v1 database in place', async () => {
@@ -52,8 +61,9 @@ describe('openDb', () => {
     raw.pragma('user_version = 1');
     raw.close();
     const db = openDb(p, 'x');
-    expect(db.pragma('user_version', { simple: true })).toBe(2);
+    expect(db.pragma('user_version', { simple: true })).toBe(MIGRATIONS.length);
     expect(() => db.prepare(`SELECT COUNT(*) FROM decisions`).get()).not.toThrow();
+    expect(() => db.prepare(`SELECT COUNT(*) FROM tracks`).get()).not.toThrow();
     db.close();
   });
 

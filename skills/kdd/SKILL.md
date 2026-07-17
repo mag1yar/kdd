@@ -9,6 +9,26 @@ KDD keeps the project's task board, decisions and context in a store outside the
 context window. You reach it through MCP tools (writes are attributed to you,
 `ai`, automatically) and, for the human, a CLI and web board.
 
+## Orientation (session start)
+
+If the SessionStart pointer reports active tracks, orient before doing anything:
+
+1. Call `list_tracks` — each track carries a `name`, a `description` written as a
+   "use when…" routing hint, and a `status`. Route work to an `active` track;
+   `status: "done"` marks a finished body of work (like a completed milestone) —
+   kept for context, not a routing target.
+2. Check where you are: current branch (`git branch --show-current`) and worktree
+   (`git rev-parse --show-toplevel`).
+3. Match branch/worktree against each track's `description`, pick the track the
+   current work most likely belongs to.
+4. Tell the user in 2–3 sentences what you understood: which track, which
+   branch/worktree, and what is `in_progress` there (`list_tasks { track_id }`).
+
+Tracks are non-time-boxed task groups (unlike sprints or gsd milestones); several
+run `active` at once, so a project may have parallel tracks by source of work.
+When you create or touch a task, put it on the track its `description` matches;
+attach with `update_task { id, edit: { track_id } }`.
+
 ## Pull protocol
 
 - At the start of a task, **pull** what you need: `list_tasks` for the board,

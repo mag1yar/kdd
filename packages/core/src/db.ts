@@ -73,6 +73,17 @@ export const MIGRATIONS: string[] = [
   );
   INSERT OR IGNORE INTO meta (key, value) VALUES ('fts_last_event_id', '0');
   `,
+  `
+  CREATE TABLE tracks (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT NOT NULL UNIQUE,
+    description TEXT,
+    status      TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','done')),
+    created_at  INTEGER NOT NULL
+  );
+  ALTER TABLE tasks ADD COLUMN track_id INTEGER REFERENCES tracks(id);
+  CREATE INDEX idx_tasks_track ON tasks(track_id);
+  `,
 ];
 
 export function openDb(dbPath: string, projectPath?: string): Database.Database {

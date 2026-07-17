@@ -8,11 +8,12 @@ const PRIORITY_ORDER =
 
 export function boardData(
   db: Database.Database,
-  f: { area?: string; status?: Status; archived?: boolean } = {},
+  f: { area?: string; status?: Status; archived?: boolean; track_id?: number } = {},
 ): Record<Status, Task[]> {
   const where: string[] = [f.archived ? 'archived_at IS NOT NULL' : 'archived_at IS NULL'];
   const params: unknown[] = [];
   if (f.area) { where.push('area = ?'); params.push(f.area); }
+  if (f.track_id != null) { where.push('track_id = ?'); params.push(f.track_id); }
   if (f.status) { where.push('status = ?'); params.push(f.status); }
   const rows = db.prepare(
     `SELECT * FROM tasks WHERE ${where.join(' AND ')}

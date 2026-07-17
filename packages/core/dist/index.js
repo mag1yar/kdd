@@ -71,6 +71,17 @@ var MIGRATIONS = [
     tokenize = 'unicode61 remove_diacritics 2'
   );
   INSERT OR IGNORE INTO meta (key, value) VALUES ('fts_last_event_id', '0');
+  `,
+  `
+  CREATE TABLE tracks (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT NOT NULL UNIQUE,
+    description TEXT,
+    status      TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','done')),
+    created_at  INTEGER NOT NULL
+  );
+  ALTER TABLE tasks ADD COLUMN track_id INTEGER REFERENCES tracks(id);
+  CREATE INDEX idx_tasks_track ON tasks(track_id);
   `
 ];
 function openDb(dbPath, projectPath) {
@@ -176,6 +187,58 @@ function checkMove(from, to, actor, reason) {
   };
 }
 
+// src/tracks.ts
+function mustGetTrack(db, id) {
+  const t = db.prepare(`SELECT * FROM tracks WHERE id = ?`).get(id);
+  if (!t) throw new KddError(`track #${id} not found`);
+  return t;
+}
+function createTrack(db, input) {
+  const name = input.name.trim();
+  if (!name) throw new KddError("track name must not be empty");
+  try {
+    const r = db.prepare(
+      `INSERT INTO tracks (name, description, created_at) VALUES (?, ?, ?)`
+    ).run(name, input.description ?? null, now());
+    return mustGetTrack(db, Number(r.lastInsertRowid));
+  } catch (e) {
+    if (String(e).includes("UNIQUE")) throw new KddError(`track '${name}' already exists`);
+    throw e;
+  }
+}
+function editTrack(db, id, patch) {
+  if (patch.status && patch.status !== "active" && patch.status !== "done") {
+    throw new KddError(`invalid status '${patch.status}'; allowed: active, done`);
+  }
+  const fields = Object.keys(patch).filter((k) => patch[k] !== void 0);
+  if (fields.length === 0) throw new KddError("nothing to edit");
+  mustGetTrack(db, id);
+  try {
+    db.prepare(`UPDATE tracks SET ${fields.map((f) => `${f} = ?`).join(", ")} WHERE id = ?`).run(...fields.map((f) => patch[f]), id);
+  } catch (e) {
+    if (String(e).includes("UNIQUE")) throw new KddError(`track '${patch.name}' already exists`);
+    throw e;
+  }
+  return mustGetTrack(db, id);
+}
+function deleteTrack(db, id) {
+  mustGetTrack(db, id);
+  db.transaction(() => {
+    db.prepare(`UPDATE tasks SET track_id = NULL WHERE track_id = ?`).run(id);
+    db.prepare(`DELETE FROM tracks WHERE id = ?`).run(id);
+  })();
+}
+function listTracks(db, opts = {}) {
+  const where = opts.status ? `WHERE tr.status = @status` : "";
+  return db.prepare(
+    `SELECT tr.*, COUNT(t.id) AS open_tasks
+     FROM tracks tr
+     LEFT JOIN tasks t ON t.track_id = tr.id AND t.archived_at IS NULL AND t.status <> 'done'
+     ${where}
+     GROUP BY tr.id ORDER BY tr.status, tr.name`
+  ).all({ status: opts.status ?? null });
+}
+
 // src/ops.ts
 var authorOf = (a) => a.type === "ai" ? `ai:${a.id ?? "?"}` : "user";
 function appendEvent(db, taskId, actor, action, detail) {
@@ -205,16 +268,18 @@ function addTask(db, input, actor) {
   const priority = input.priority ?? "medium";
   checkPriority(priority);
   if (!input.title.trim()) throw new KddError("title must not be empty");
+  if (input.track_id != null) mustGetTrack(db, input.track_id);
   return db.transaction(() => {
     const ts = now();
     const r = db.prepare(
-      `INSERT INTO tasks (title, body, priority, area, position, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO tasks (title, body, priority, area, track_id, position, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       input.title,
       input.body ?? null,
       priority,
       input.area ?? null,
+      input.track_id ?? null,
       nextPosition(db, "new"),
       ts,
       ts
@@ -226,6 +291,7 @@ function addTask(db, input, actor) {
 }
 function editTask(db, id, patch, actor) {
   if (patch.priority !== void 0) checkPriority(patch.priority);
+  if (patch.track_id != null) mustGetTrack(db, patch.track_id);
   const fields = Object.keys(patch).filter((k) => patch[k] !== void 0);
   if (fields.length === 0) throw new KddError("nothing to edit");
   return db.transaction(() => {
@@ -551,6 +617,10 @@ function boardData(db, f = {}) {
     where.push("area = ?");
     params.push(f.area);
   }
+  if (f.track_id != null) {
+    where.push("track_id = ?");
+    params.push(f.track_id);
+  }
   if (f.status) {
     where.push("status = ?");
     params.push(f.status);
@@ -617,14 +687,19 @@ export {
   checkMove,
   commentTask,
   contentHash,
+  createTrack,
+  deleteTrack,
   editTask,
+  editTrack,
   exportBoard,
   kddHome,
   linkTasks,
   listProjects,
+  listTracks,
   logError,
   moveTask,
   mustGetTask,
+  mustGetTrack,
   now,
   openDb,
   parseDecisionMd,

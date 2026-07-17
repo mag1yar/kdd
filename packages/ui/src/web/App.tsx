@@ -1,15 +1,17 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Toaster, toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import { Check, Plus, Trash2 } from 'lucide-react';
 import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+  Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import {
-  STATUSES, getBoard, getPing, getProjects, moveTask,
-  type Board as BoardData, type Project, type Status,
+  STATUSES, deleteTrack, getBoard, getPing, getProjects, getTracks, moveTask, setTrackDone,
+  type Board as BoardData, type Project, type Status, type Track,
 } from './api';
 import { Board } from './components/Board';
 import { NewTaskDialog } from './components/NewTaskDialog';
+import { NewTrackDialog } from './components/NewTrackDialog';
 import { TaskDialog } from './components/TaskDialog';
 import { useVersion } from './useVersion';
 
@@ -21,19 +23,38 @@ export default function App() {
   const [board, setBoard] = useState<BoardData | null>(null);
   const [openId, setOpenId] = useState<number | null>(null);
   const [creating, setCreating] = useState(false);
+  const [creatingTrack, setCreatingTrack] = useState(false);
   const [projects, setProjects] = useState<Project[]>([]);
+  const [tracks, setTracks] = useState<Track[]>([]);
+  const [track, setTrack] = useState<number | null>(null); // фильтр доски по track (all=null)
   const current = new URLSearchParams(location.search).get('project') ?? '';
   const version = useVersion();
 
+  const loadTracks = useCallback(
+    () => getTracks().then(setTracks).catch((e: Error) => toast.error(e.message)), []);
   useEffect(() => {
     getProjects().then(setProjects).catch((e: Error) => toast.error(e.message));
+    void loadTracks();
+    setTrack(null); // смена проекта → сброс фильтра track
     // нет ?project в URL → берём дефолт сервера и фиксируем в URL (select + доска синхронны)
     if (!current) getPing().then((p) => { if (p.default) location.replace(`?project=${p.default}`); }).catch(() => {});
-  }, [current]);
+  }, [current, loadTracks]);
 
+  const trackName = new Map(tracks.map((t) => [t.id, t.name]));
+  const currentTrack = tracks.find((t) => t.id === track);
+  const markDone = () => { // like a gsd milestone complete: задачи остаются, track → done
+    if (track === null) return;
+    setTrackDone(track).then(() => { setTrack(null); return loadTracks(); })
+      .catch((e: Error) => toast.error(e.message));
+  };
+  const removeTrack = () => {
+    if (track === null || !window.confirm(`Delete track "${currentTrack?.name}"? Tasks stay, only the grouping is removed.`)) return;
+    deleteTrack(track).then(() => { setTrack(null); return loadTracks(); })
+      .catch((e: Error) => toast.error(e.message));
+  };
   const refetch = useCallback(() => {
-    getBoard().then(setBoard).catch((e: Error) => toast.error(e.message));
-  }, []);
+    getBoard(track ?? undefined).then(setBoard).catch((e: Error) => toast.error(e.message));
+  }, [track]);
   useEffect(() => { refetch(); }, [refetch, version]); // поллинг: version растёт → рефетч (UI-04)
 
   const onMove = (taskId: number, to: Status, order: number[]) => {
@@ -72,18 +93,59 @@ export default function App() {
               ))}
             </SelectContent>
           </Select>
+          <Select
+            value={track === null ? 'all' : String(track)}
+            onValueChange={(v) => {
+              if (v === '__new__') { setCreatingTrack(true); return; } // не меняем фильтр
+              setTrack(v === 'all' ? null : Number(v));
+            }}
+          >
+            <SelectTrigger size="sm" className="w-44">
+              <SelectValue placeholder="All tracks">
+                {(v) => (v === 'all' ? 'All tracks' : trackName.get(Number(v)) ?? '')}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All tracks</SelectItem>
+              {tracks.map((t) => (
+                <SelectItem key={t.id} value={String(t.id)}>
+                  {t.name} ({t.open_tasks})
+                </SelectItem>
+              ))}
+              <SelectSeparator />
+              <SelectItem value="__new__">
+                <Plus className="size-3.5" /> New track
+              </SelectItem>
+            </SelectContent>
+          </Select>
+          {track !== null && (
+            <>
+              <Button size="sm" variant="outline" onClick={markDone} title="Mark track done">
+                <Check className="size-3.5" /> Done
+              </Button>
+              <Button size="sm" variant="ghost" onClick={removeTrack} title="Delete track">
+                <Trash2 className="size-3.5" />
+              </Button>
+            </>
+          )}
         </div>
         <Button size="sm" onClick={() => setCreating(true)}>New task</Button>
       </header>
       <main className="flex-1 overflow-auto">
-        <Board board={board} onMove={onMove} onOpen={setOpenId} />
+        <Board board={board} trackName={trackName} onMove={onMove} onOpen={setOpenId} />
       </main>
       <TaskDialog
-        id={openId} version={version}
+        id={openId} version={version} tracks={tracks}
         onClose={() => setOpenId(null)} onChanged={refetch}
       />
       <NewTaskDialog
-        open={creating} onClose={() => setCreating(false)} onCreated={refetch}
+        open={creating} tracks={tracks} defaultTrack={track}
+        onClose={() => setCreating(false)} onCreated={refetch}
+      />
+      <NewTrackDialog
+        open={creatingTrack}
+        onClose={() => setCreatingTrack(false)}
+        onCreated={(t) => { setTrack(t.id); void loadTracks(); }} // фильтруем на новый track
       />
       <Toaster position="bottom-right" />
     </div>

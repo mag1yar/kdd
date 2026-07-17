@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -7,17 +7,22 @@ import {
   Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
-import { PRIORITIES, createTask, type Priority } from '../api';
+import { PRIORITIES, createTask, type Priority, type Track } from '../api';
 
-export function NewTaskDialog({ open, onClose, onCreated }: {
-  open: boolean; onClose: () => void; onCreated: () => void;
+export function NewTaskDialog({ open, tracks, defaultTrack, onClose, onCreated }: {
+  open: boolean; tracks: Track[]; defaultTrack: number | null;
+  onClose: () => void; onCreated: () => void;
 }) {
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
   const [priority, setPriority] = useState<Priority>('medium');
+  const [track, setTrack] = useState<number | null>(defaultTrack);
+
+  // диалог не размонтируется → синхроним с фильтром доски при открытии
+  useEffect(() => { if (open) setTrack(defaultTrack); }, [open, defaultTrack]);
 
   const create = () => {
-    createTask({ title, body: body || undefined, priority })
+    createTask({ title, body: body || undefined, priority, track_id: track ?? undefined })
       .then(() => {
         setTitle(''); setBody(''); setPriority('medium');
         onCreated(); onClose();
@@ -35,14 +40,35 @@ export function NewTaskDialog({ open, onClose, onCreated }: {
             rows={6} value={body} placeholder="markdown body (optional)"
             onChange={(e) => setBody(e.target.value)}
           />
-          <Select value={priority} onValueChange={(v) => setPriority(v as Priority)}>
-            <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectGroup>
-                {PRIORITIES.map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}
-              </SelectGroup>
-            </SelectContent>
-          </Select>
+          <div className="flex gap-2">
+            <Select value={priority} onValueChange={(v) => setPriority(v as Priority)}>
+              <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  {PRIORITIES.map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+            {tracks.length > 0 && (
+              <Select
+                value={track === null ? 'none' : String(track)}
+                onValueChange={(v) => setTrack(v === 'none' ? null : Number(v))}
+              >
+                <SelectTrigger className="w-48">
+                  <SelectValue placeholder="No track">
+                    {(v) => (v === 'none' ? 'No track'
+                      : tracks.find((t) => t.id === Number(v))?.name ?? '')}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">No track</SelectItem>
+                  {tracks.map((t) => (
+                    <SelectItem key={t.id} value={String(t.id)}>{t.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          </div>
           <div>
             <Button size="sm" onClick={create}>Create</Button>
           </div>

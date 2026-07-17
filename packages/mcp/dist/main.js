@@ -21177,6 +21177,17 @@ var MIGRATIONS = [
     tokenize = 'unicode61 remove_diacritics 2'
   );
   INSERT OR IGNORE INTO meta (key, value) VALUES ('fts_last_event_id', '0');
+  `,
+  `
+  CREATE TABLE tracks (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT NOT NULL UNIQUE,
+    description TEXT,
+    status      TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','done')),
+    created_at  INTEGER NOT NULL
+  );
+  ALTER TABLE tasks ADD COLUMN track_id INTEGER REFERENCES tracks(id);
+  CREATE INDEX idx_tasks_track ON tasks(track_id);
   `
 ];
 function openDb(dbPath, projectPath) {
@@ -21251,6 +21262,21 @@ function checkMove(from, to, actor, reason) {
     error: `invalid transition ${from} \u2192 ${to} for ai; allowed: ${TRANSITIONS[from].join(", ")}; pass --reason if user requested a skip`
   };
 }
+function mustGetTrack(db, id) {
+  const t = db.prepare(`SELECT * FROM tracks WHERE id = ?`).get(id);
+  if (!t) throw new KddError(`track #${id} not found`);
+  return t;
+}
+function listTracks(db, opts = {}) {
+  const where = opts.status ? `WHERE tr.status = @status` : "";
+  return db.prepare(
+    `SELECT tr.*, COUNT(t.id) AS open_tasks
+     FROM tracks tr
+     LEFT JOIN tasks t ON t.track_id = tr.id AND t.archived_at IS NULL AND t.status <> 'done'
+     ${where}
+     GROUP BY tr.id ORDER BY tr.status, tr.name`
+  ).all({ status: opts.status ?? null });
+}
 var authorOf = (a) => a.type === "ai" ? `ai:${a.id ?? "?"}` : "user";
 function appendEvent(db, taskId, actor, action, detail) {
   db.prepare(
@@ -21277,6 +21303,7 @@ function checkPriority(p) {
 }
 function editTask(db, id, patch, actor) {
   if (patch.priority !== void 0) checkPriority(patch.priority);
+  if (patch.track_id != null) mustGetTrack(db, patch.track_id);
   const fields = Object.keys(patch).filter((k) => patch[k] !== void 0);
   if (fields.length === 0) throw new KddError("nothing to edit");
   return db.transaction(() => {
@@ -21303,13 +21330,19 @@ function checkStatus(s) {
     throw new KddError(`invalid status '${s}'; allowed: ${STATUSES.join(", ")}`);
   }
 }
+function nextPosition(db, status) {
+  return db.prepare(
+    `SELECT COALESCE(MAX(position), -1) + 1 AS p
+     FROM tasks WHERE status = ? AND archived_at IS NULL`
+  ).get(status).p;
+}
 function moveTask(db, id, to, actor, reason) {
   checkStatus(to);
   return db.transaction(() => {
     const t = mustGetTask(db, id);
     const res = checkMove(t.status, to, actor, reason);
     if (!res.ok) throw new KddError(res.error);
-    db.prepare(`UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?`).run(to, now(), id);
+    db.prepare(`UPDATE tasks SET status = ?, position = ?, updated_at = ? WHERE id = ?`).run(to, nextPosition(db, to), now(), id);
     appendEvent(
       db,
       id,
@@ -21442,13 +21475,17 @@ function boardData(db, f = {}) {
     where.push("area = ?");
     params.push(f.area);
   }
+  if (f.track_id != null) {
+    where.push("track_id = ?");
+    params.push(f.track_id);
+  }
   if (f.status) {
     where.push("status = ?");
     params.push(f.status);
   }
   const rows = db.prepare(
     `SELECT * FROM tasks WHERE ${where.join(" AND ")}
-     ORDER BY ${PRIORITY_ORDER}, position, created_at`
+     ORDER BY position, ${PRIORITY_ORDER}, created_at`
   ).all(...params);
   const out = Object.fromEntries(STATUSES.map((s) => [s, []]));
   for (const r of rows) out[r.status].push(r);
@@ -21473,6 +21510,15 @@ function taskDetail(db, id) {
 // src/handlers.ts
 function getTask(db, id) {
   return taskDetail(db, id);
+}
+function listTracksTool(db) {
+  return listTracks(db, {}).map((t) => ({
+    id: t.id,
+    name: t.name,
+    description: t.description,
+    status: t.status,
+    open_tasks: t.open_tasks
+  }));
 }
 function listTasks(db, filter = {}) {
   const board = boardData(db, filter);
@@ -21536,9 +21582,21 @@ function createServer(db, dir, actor) {
     "list_tasks",
     {
       description: "Compact board rows grouped by status (no body)",
-      inputSchema: { status: statusEnum.optional(), area: external_exports.string().optional() }
+      inputSchema: {
+        status: statusEnum.optional(),
+        area: external_exports.string().optional(),
+        track_id: external_exports.number().int().positive().optional()
+      }
     },
     async (a) => guard(db, () => listTasks(db, a))
+  );
+  server.registerTool(
+    "list_tracks",
+    {
+      description: 'Tracks with their "use when\u2026" description and status. Route new tasks to an active track matching the current branch/worktree; status=done marks a finished body of work (kept for context, not a routing target)',
+      inputSchema: {}
+    },
+    async () => guard(db, () => listTracksTool(db))
   );
   server.registerTool(
     "recall",
@@ -21562,7 +21620,8 @@ function createServer(db, dir, actor) {
           title: external_exports.string().optional(),
           body: external_exports.string().optional(),
           priority: priorityEnum.optional(),
-          area: external_exports.string().optional()
+          area: external_exports.string().optional(),
+          track_id: external_exports.number().int().positive().nullable().optional()
         }).optional(),
         move: external_exports.object({ to: statusEnum, reason: external_exports.string().optional() }).optional(),
         comment: external_exports.string().optional()

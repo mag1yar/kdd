@@ -29,6 +29,10 @@ async function main() {
     if (d.blocked.length) parts.push(`${d.blocked.length} blocked`);
     console.log(POINTER);
     if (parts.length) console.log(parts.join(', ') + '. Run kdd status for detail.');
+    const tracks = core.listTracks(db, { status: 'active' });
+    if (tracks.length) {
+      console.log(`Tracks: ${tracks.length} active — call list_tracks and orient (branch/worktree → track) before starting.`);
+    }
   } catch (e) {
     try { core.logError(db, 'session-start', String(e)); } catch { /* ignore */ }
     console.log(POINTER);

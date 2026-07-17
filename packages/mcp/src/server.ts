@@ -41,9 +41,21 @@ export function createServer(db: Database.Database, dir: string, actor: Actor): 
   server.registerTool('list_tasks',
     {
       description: 'Compact board rows grouped by status (no body)',
-      inputSchema: { status: statusEnum.optional(), area: z.string().optional() },
+      inputSchema: {
+        status: statusEnum.optional(), area: z.string().optional(),
+        track_id: z.number().int().positive().optional(),
+      },
     },
     async (a) => guard(db, () => h.listTasks(db, a)));
+
+  server.registerTool('list_tracks',
+    {
+      description: 'Tracks with their "use when…" description and status. Route new tasks '
+        + 'to an active track matching the current branch/worktree; status=done marks a '
+        + 'finished body of work (kept for context, not a routing target)',
+      inputSchema: {},
+    },
+    async () => guard(db, () => h.listTracksTool(db)));
 
   server.registerTool('recall',
     {
@@ -64,6 +76,7 @@ export function createServer(db: Database.Database, dir: string, actor: Actor): 
         edit: z.object({
           title: z.string().optional(), body: z.string().optional(),
           priority: priorityEnum.optional(), area: z.string().optional(),
+          track_id: z.number().int().positive().nullable().optional(),
         }).optional(),
         move: z.object({ to: statusEnum, reason: z.string().optional() }).optional(),
         comment: z.string().optional(),

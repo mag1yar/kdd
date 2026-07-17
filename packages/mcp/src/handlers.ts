@@ -1,7 +1,7 @@
 import type Database from 'better-sqlite3';
 import {
   boardData, taskDetail, recall, editTask, moveTask, commentTask, mustGetTask,
-  KddError, type Actor, type Priority, type Status,
+  listTracks, KddError, type Actor, type Priority, type Status,
 } from '@kddkit/core';
 
 export interface TaskRow {
@@ -16,9 +16,17 @@ export function getTask(db: Database.Database, id: number) {
   return taskDetail(db, id);
 }
 
+export function listTracksTool(db: Database.Database) {
+  // все track-и, включая done: routing → active; done = завершённый пласт работы (контекст)
+  return listTracks(db, {}).map((t) => ({
+    id: t.id, name: t.name, description: t.description,
+    status: t.status, open_tasks: t.open_tasks,
+  }));
+}
+
 export function listTasks(
   db: Database.Database,
-  filter: { status?: Status; area?: string } = {},
+  filter: { status?: Status; area?: string; track_id?: number } = {},
 ): Record<string, TaskRow[]> {
   const board = boardData(db, filter);
   const out: Record<string, TaskRow[]> = {};
@@ -40,7 +48,7 @@ export function recallTool(
 
 export interface UpdateInput {
   id: number;
-  edit?: { title?: string; body?: string; priority?: Priority; area?: string };
+  edit?: { title?: string; body?: string; priority?: Priority; area?: string; track_id?: number | null };
   move?: { to: string; reason?: string };
   comment?: string;
 }

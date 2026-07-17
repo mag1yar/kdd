@@ -16,6 +16,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 2: Decisions & Recall** - Decisions as committed markdown, FTS5 recall across decisions and tasks, rebuildable index
 - [x] **Phase 3: Web Kanban** - Minimal local kanban UI over the same store: drag-n-drop, task create/edit, comments
 - [x] **Phase 4: Claude Integration & Packaging** - Thin MCP, skill contract, SessionStart hook, installable Claude Code plugin
+- [x] **Phase 5: Task Detail Parity** - Jira/Azure-inspired task view: Details-rail (status dropdown, priority, blocked+reason, related links, dates), Activity tabs (Comments/History), markdown comments (see [research/TASK-DETAIL-PARITY.md](research/TASK-DETAIL-PARITY.md))
 
 ## Phase Details
 
@@ -68,10 +69,22 @@ Decimal phases appear between their surrounding integers in numeric order.
   4. The plugin installs as a Claude Code plugin (skills + MCP + CLI via npx) and works on Windows
 **Plans**: docs/superpowers/plans/2026-07-15-kdd-phase4-claude-integration.md
 
+### Phase 5: Task Detail Parity
+**Goal**: The web task view reaches Jira/Azure-level detail without enterprise cruft — surfacing data already in the store (events, links, blocked, dates) and matching the Details-rail + Activity-tabs pattern
+**Mode:** mvp
+**Depends on**: Phase 3
+**Success Criteria** (what must be TRUE):
+  1. Details-rail shows status dropdown (changes state via the same state machine), priority, blocked+reason with Block/Unblock, related links, created/updated dates
+  2. Activity has Comments and History tabs; History renders the event trail (created/moved/blocked/linked/commented) with actor
+  3. Comment bodies render markdown; composer is a bordered textarea + Send
+**Plans**: ad-hoc (surfaced existing store data; no new schema)
+**UI hint**: yes
+**Research**: research/TASK-DETAIL-PARITY.md (defer-list: parent/subtasks, estimate, dev-links, @/# mentions, autonomy controls)
+
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 → 2 → 3 → 4
+Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
@@ -79,3 +92,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | 2. Decisions & Recall | 1/1 | Complete | 2026-07-14 |
 | 3. Web Kanban | 1/1 | Complete | 2026-07-15 |
 | 4. Claude Integration & Packaging | 1/1 | Complete | 2026-07-15 |
+| 5. Task Detail Parity | 1/1 | Complete | 2026-07-17 |

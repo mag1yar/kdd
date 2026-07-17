@@ -2,6 +2,11 @@
 @import "tw-animate-css";
 @plugin "@tailwindcss/typography";
 
+/* Base UI data-атрибуты как шорткат-варианты (обычно из shadcn/tailwind.css) */
+@custom-variant data-horizontal (&[data-orientation="horizontal"]);
+@custom-variant data-vertical (&[data-orientation="vertical"]);
+@custom-variant data-active (&[data-active]);
+
 :root {
   --radius: 0.625rem;
   --background: oklch(1 0 0);

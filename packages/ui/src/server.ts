@@ -5,8 +5,8 @@ import type Database from 'better-sqlite3';
 import { serve } from '@hono/node-server';
 import { Hono, type Context } from 'hono';
 import {
-  KddError, addTask, boardData, commentTask, editTask, moveTask, placeTask, taskDetail,
-  type Priority,
+  KddError, addTask, blockTask, boardData, commentTask, editTask, moveTask, placeTask,
+  taskDetail, unblockTask, type Priority,
 } from '@kddkit/core';
 
 const USER = { type: 'user' } as const;
@@ -71,6 +71,13 @@ export function createApp(db: Database.Database): Hono {
     }
     return c.json(moveTask(db, taskId(c), to, USER));
   });
+
+  app.post('/api/tasks/:id/block', async (c) => {
+    const b = await jsonBody(c);
+    return c.json(blockTask(db, taskId(c), String(b.reason ?? ''), USER));
+  });
+
+  app.post('/api/tasks/:id/unblock', (c) => c.json(unblockTask(db, taskId(c), USER)));
 
   app.post('/api/tasks/:id/comments', async (c) => {
     const b = await jsonBody(c);

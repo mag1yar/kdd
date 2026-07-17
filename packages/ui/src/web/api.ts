@@ -6,11 +6,19 @@ export type Priority = (typeof PRIORITIES)[number];
 
 export interface Task {
   id: number; title: string; body: string | null; status: Status;
-  blocked: 0 | 1; priority: Priority;
+  blocked: 0 | 1; block_reason: string | null; priority: Priority; area: string | null;
+  created_at: number; updated_at: number;
 }
 export interface Comment { id: number; author: string; body: string; created_at: number; }
+export interface EventRow {
+  id: number; actor_type: 'user' | 'ai'; actor_id: string | null;
+  action: string; detail: string | null; created_at: number;
+}
+export interface Link { id: number; title: string; kind: string; }
 export type Board = Record<Status, Task[]>;
-export interface TaskDetail { task: Task; comments: Comment[]; }
+export interface TaskDetail {
+  task: Task; comments: Comment[]; events: EventRow[]; links: Link[];
+}
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path,
@@ -31,3 +39,7 @@ export const moveTask = (id: number, to: Status, order?: number[]) =>
   req<Task>(`/api/tasks/${id}/move`, { method: 'POST', body: JSON.stringify({ to, order }) });
 export const addComment = (id: number, body: string) =>
   req<Comment>(`/api/tasks/${id}/comments`, { method: 'POST', body: JSON.stringify({ body }) });
+export const blockTask = (id: number, reason: string) =>
+  req<Task>(`/api/tasks/${id}/block`, { method: 'POST', body: JSON.stringify({ reason }) });
+export const unblockTask = (id: number) =>
+  req<Task>(`/api/tasks/${id}/unblock`, { method: 'POST' });

@@ -2,10 +2,10 @@
 gsd_state_version: '1.0'
 status: executing
 progress:
-  total_phases: 4
-  completed_phases: 4
-  total_plans: 4
-  completed_plans: 4
+  total_phases: 5
+  completed_phases: 5
+  total_plans: 5
+  completed_plans: 5
   percent: 100
 ---
 
@@ -16,14 +16,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-14)
 
 **Core value:** Ничего не забывается и не нарушается: задачи, решения и контекст проекта хранятся вне окна контекста, достаются по запросу (pull) и одинаково видны из любого worktree.
-**Current focus:** Phase 4 — Claude Integration & Packaging
+**Current focus:** Phase 5 — Task Detail Parity (web task view)
 
 ## Current Position
 
-Phase: 4 of 4 (Claude Integration & Packaging) — DONE
+Phase: 5 of 5 (Task Detail Parity) — DONE
 Plan: 1 of 1 complete
-Status: Phase 4 complete; all v1 requirements (STORE, CLI, DEC, UI, INT) complete
-Last activity: 2026-07-15 — Phase 4 executed: @kddkit/mcp (thin MCP server, 4 tools), skill contract, SessionStart hook, plugin packaging with committed dist for core/cli/mcp
+Status: v1 (STORE, CLI, DEC, UI, INT) + Phase 5 detail-parity complete
+Last activity: 2026-07-17 — Phase 5: TaskDialog redesign (Jira Details-rail + Activity tabs), surfaced events/links/blocked/dates from store, block/unblock API, markdown comments. Defer-list in research/TASK-DETAIL-PARITY.md
 
 Progress: [██████████] 100%
 

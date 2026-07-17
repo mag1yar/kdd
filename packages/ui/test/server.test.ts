@@ -5,7 +5,7 @@ import { createApp } from '../src/server.js';
 const user = { type: 'user' } as const;
 const mk = () => {
   const db = openDb(':memory:', 'x');
-  return { db, app: createApp(db) };
+  return { db, app: createApp(() => db) };
 };
 
 describe('GET /api/board', () => {

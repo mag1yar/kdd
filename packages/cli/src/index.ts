@@ -1,13 +1,14 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
 import { readFileSync } from 'node:fs';
+import { basename, dirname } from 'node:path';
 import {
   KddError, addDecision, addTask, archiveTask, blockTask, boardData, commentTask,
   editTask, exportBoard, linkTasks, listProjects, moveTask, openDb, rebuild, recall,
   resolveDbPath, resolveDecisionsDir, statusDigest, taskDetail,
   unarchiveTask, unblockTask, type Status,
 } from '@kddkit/core';
-import { startUi } from '@kddkit/ui';
+import { projectPool, startUi } from '@kddkit/ui';
 import { fail, getActor, parseId, withDb } from './context.js';
 import { renderBoard, renderRecall, renderShow, renderStatus } from './render.js';
 
@@ -176,11 +177,32 @@ program.command('status')
 
 program.command('ui')
   .option('--port <n>', 'port', '4499')
-  .action((o) => run(false, () => {
-    const { dbPath, projectPath } = resolveDbPath();
-    const db = openDb(dbPath, projectPath); // живёт, пока жив сервер
-    void startUi(db, Number(o.port)).then(({ url }) => console.log(`kdd ui: ${url}`));
-  }));
+  .action((o) => run(false, () => { void uiStart(Number(o.port)); }));
+
+// Один сервер на все проекты: если kdd-ui уже поднят на порту — переиспользуем,
+// печатаем URL с ?project=<этот-hash>. Иначе поднимаем сервер здесь.
+async function uiStart(port: number): Promise<void> {
+  const { dbPath, projectPath } = resolveDbPath();
+  const hash = basename(dirname(dbPath));
+  openDb(dbPath, projectPath).close(); // создаём/мигрируем базу → проект виден в /api/projects
+  const url = `http://localhost:${port}?project=${hash}`;
+  try {
+    const res = await fetch(`http://localhost:${port}/api/ping`, { signal: AbortSignal.timeout(500) });
+    if (res.ok && ((await res.json()) as { kdd?: boolean }).kdd) {
+      console.log(`kdd ui: ${url} (reusing running server)`);
+      return;
+    }
+  } catch { /* сервера нет — поднимаем свой */ }
+  const { getDb, closeAll } = projectPool(hash);
+  try {
+    await startUi(getDb, port, hash);
+  } catch (e) {
+    closeAll();
+    fail(e instanceof Error ? e.message : String(e), false);
+  }
+  process.on('SIGINT', () => { closeAll(); process.exit(0); });
+  console.log(`kdd ui: ${url}`);
+}
 
 program.command('projects')
   .option('--json')

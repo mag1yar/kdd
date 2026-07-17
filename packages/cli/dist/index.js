@@ -3,6 +3,7 @@
 // src/index.ts
 import { Command } from "commander";
 import { readFileSync } from "fs";
+import { basename, dirname } from "path";
 import {
   KddError as KddError2,
   addDecision,
@@ -26,7 +27,7 @@ import {
   unarchiveTask,
   unblockTask
 } from "@kddkit/core";
-import { startUi } from "@kddkit/ui";
+import { projectPool, startUi } from "@kddkit/ui";
 
 // src/context.ts
 import { KddError, openDb, resolveDbPath } from "@kddkit/core";
@@ -257,10 +258,34 @@ program.command("status").option("--json").action((o) => run(o.json, () => {
   out(o.json, d, () => renderStatus(d));
 }));
 program.command("ui").option("--port <n>", "port", "4499").action((o) => run(false, () => {
-  const { dbPath, projectPath } = resolveDbPath2();
-  const db = openDb2(dbPath, projectPath);
-  void startUi(db, Number(o.port)).then(({ url }) => console.log(`kdd ui: ${url}`));
+  void uiStart(Number(o.port));
 }));
+async function uiStart(port) {
+  const { dbPath, projectPath } = resolveDbPath2();
+  const hash = basename(dirname(dbPath));
+  openDb2(dbPath, projectPath).close();
+  const url = `http://localhost:${port}?project=${hash}`;
+  try {
+    const res = await fetch(`http://localhost:${port}/api/ping`, { signal: AbortSignal.timeout(500) });
+    if (res.ok && (await res.json()).kdd) {
+      console.log(`kdd ui: ${url} (reusing running server)`);
+      return;
+    }
+  } catch {
+  }
+  const { getDb, closeAll } = projectPool(hash);
+  try {
+    await startUi(getDb, port, hash);
+  } catch (e) {
+    closeAll();
+    fail(e instanceof Error ? e.message : String(e), false);
+  }
+  process.on("SIGINT", () => {
+    closeAll();
+    process.exit(0);
+  });
+  console.log(`kdd ui: ${url}`);
+}
 program.command("projects").option("--json").action((o) => run(o.json, () => {
   const ps = listProjects();
   out(o.json, ps, () => ps.length ? ps.map((p) => `${p.projectPath}

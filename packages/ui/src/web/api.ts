@@ -20,14 +20,24 @@ export interface TaskDetail {
   task: Task; comments: Comment[]; events: EventRow[]; links: Link[];
 }
 
+// ?project=<hash> из URL пробрасывается во все запросы — сервер отдаёт нужную базу.
+function withProject(path: string): string {
+  const p = new URLSearchParams(location.search).get('project');
+  if (!p) return path;
+  return `${path}${path.includes('?') ? '&' : '?'}project=${encodeURIComponent(p)}`;
+}
+
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(path,
+  const res = await fetch(withProject(path),
     init ? { ...init, headers: { 'content-type': 'application/json' } } : undefined);
   const data = (await res.json()) as T & { error?: string };
   if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
   return data;
 }
 
+export interface Project { id: string; path: string; }
+export const getProjects = () => req<Project[]>('/api/projects');
+export const getPing = () => req<{ kdd: boolean; default: string }>('/api/ping');
 export const getBoard = () => req<Board>('/api/board');
 export const getVersion = () => req<{ version: number }>('/api/version');
 export const getTask = (id: number) => req<TaskDetail>(`/api/tasks/${id}`);

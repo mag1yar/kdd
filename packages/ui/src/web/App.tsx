@@ -1,17 +1,35 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Toaster, toast } from 'sonner';
 import { Button } from '@/components/ui/button';
-import { STATUSES, getBoard, moveTask, type Board as BoardData, type Status } from './api';
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select';
+import {
+  STATUSES, getBoard, getPing, getProjects, moveTask,
+  type Board as BoardData, type Project, type Status,
+} from './api';
 import { Board } from './components/Board';
 import { NewTaskDialog } from './components/NewTaskDialog';
 import { TaskDialog } from './components/TaskDialog';
 import { useVersion } from './useVersion';
 
+// git-common-dir оканчивается на /.git — показываем имя репо.
+const projectName = (path: string) =>
+  path.replace(/[/\\]\.git[/\\]?$/, '').split(/[/\\]/).filter(Boolean).slice(-1)[0] ?? path;
+
 export default function App() {
   const [board, setBoard] = useState<BoardData | null>(null);
   const [openId, setOpenId] = useState<number | null>(null);
   const [creating, setCreating] = useState(false);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const current = new URLSearchParams(location.search).get('project') ?? '';
   const version = useVersion();
+
+  useEffect(() => {
+    getProjects().then(setProjects).catch((e: Error) => toast.error(e.message));
+    // нет ?project в URL → берём дефолт сервера и фиксируем в URL (select + доска синхронны)
+    if (!current) getPing().then((p) => { if (p.default) location.replace(`?project=${p.default}`); }).catch(() => {});
+  }, [current]);
 
   const refetch = useCallback(() => {
     getBoard().then(setBoard).catch((e: Error) => toast.error(e.message));
@@ -40,7 +58,21 @@ export default function App() {
   return (
     <div className="flex h-screen flex-col">
       <header className="flex items-center justify-between border-b px-4 py-2">
-        <h1 className="text-sm font-semibold">kdd</h1>
+        <div className="flex items-center gap-3">
+          <h1 className="text-sm font-semibold">kdd</h1>
+          <Select value={current} onValueChange={(id) => location.assign(`?project=${id}`)}>
+            <SelectTrigger size="sm" className="w-52">
+              <SelectValue placeholder="Project">
+                {(v) => projectName(projects.find((p) => p.id === v)?.path ?? '')}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              {projects.map((p) => (
+                <SelectItem key={p.id} value={p.id}>{projectName(p.path)}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
         <Button size="sm" onClick={() => setCreating(true)}>New task</Button>
       </header>
       <main className="flex-1 overflow-auto">

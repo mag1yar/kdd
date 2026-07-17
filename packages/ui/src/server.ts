@@ -1,13 +1,35 @@
 import { readFile } from 'node:fs/promises';
-import { dirname, extname, join, resolve } from 'node:path';
+import { basename, dirname, extname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type Database from 'better-sqlite3';
 import { serve } from '@hono/node-server';
 import { Hono, type Context } from 'hono';
 import {
-  KddError, addTask, blockTask, boardData, commentTask, editTask, moveTask, placeTask,
-  taskDetail, unblockTask, type Priority,
+  KddError, addTask, blockTask, boardData, commentTask, editTask, kddHome, listProjects,
+  moveTask, openDb, placeTask, taskDetail, unblockTask, type Priority,
 } from '@kddkit/core';
+
+const hashOf = (dbPath: string) => basename(dirname(dbPath));
+
+// Пул баз по hash проекта: один сервер обслуживает все локальные проекты.
+// getDb(c) резолвит базу из ?project=<hash>, иначе дефолт (проект, откуда запущен ui).
+export function projectPool(defaultHash: string): {
+  getDb: (c: Context) => Database.Database; closeAll: () => void;
+} {
+  const pool = new Map<string, Database.Database>();
+  const getDb = (c: Context): Database.Database => {
+    const hash = c.req.query('project') || defaultHash;
+    const cached = pool.get(hash);
+    if (cached) return cached;
+    if (!listProjects().some((p) => hashOf(p.dbPath) === hash)) {
+      throw new KddError(`unknown project '${hash}'`);
+    }
+    const db = openDb(join(kddHome(), hash, 'kdd.db'));
+    pool.set(hash, db);
+    return db;
+  };
+  return { getDb, closeAll: () => { for (const d of pool.values()) d.close(); } };
+}
 
 const USER = { type: 'user' } as const;
 
@@ -26,7 +48,9 @@ async function jsonBody(c: Context): Promise<Record<string, unknown>> {
   }
 }
 
-export function createApp(db: Database.Database): Hono {
+export function createApp(
+  getDb: (c: Context) => Database.Database, defaultHash = '',
+): Hono {
   const app = new Hono();
 
   app.onError((e, c) => {
@@ -35,17 +59,24 @@ export function createApp(db: Database.Database): Hono {
     return c.json({ error: 'internal error' }, 500);
   });
 
-  app.get('/api/board', (c) => c.json(boardData(db)));
+  // Мультипроектность: ping (переиспользование сервера из cli) + список проектов для select.
+  app.get('/api/ping', (c) => c.json({ kdd: true, default: defaultHash }));
+  app.get('/api/projects', (c) => c.json(
+    listProjects().map((p) => ({ id: hashOf(p.dbPath), path: p.projectPath })),
+  ));
+
+  app.get('/api/board', (c) => c.json(boardData(getDb(c))));
 
   app.get('/api/version', (c) => c.json({
-    version: (db.prepare(`SELECT COALESCE(MAX(id), 0) AS v FROM events`).get() as { v: number }).v,
+    version: (getDb(c).prepare(`SELECT COALESCE(MAX(id), 0) AS v FROM events`)
+      .get() as { v: number }).v,
   }));
 
-  app.get('/api/tasks/:id', (c) => c.json(taskDetail(db, taskId(c))));
+  app.get('/api/tasks/:id', (c) => c.json(taskDetail(getDb(c), taskId(c))));
 
   app.post('/api/tasks', async (c) => {
     const b = await jsonBody(c);
-    return c.json(addTask(db, {
+    return c.json(addTask(getDb(c), {
       title: String(b.title ?? ''),
       body: b.body as string | undefined,
       priority: b.priority as Priority | undefined,
@@ -54,7 +85,7 @@ export function createApp(db: Database.Database): Hono {
 
   app.patch('/api/tasks/:id', async (c) => {
     const b = await jsonBody(c);
-    return c.json(editTask(db, taskId(c), {
+    return c.json(editTask(getDb(c), taskId(c), {
       title: b.title as string | undefined,
       body: b.body as string | undefined,
       priority: b.priority as Priority | undefined,
@@ -67,21 +98,21 @@ export function createApp(db: Database.Database): Hono {
     // order: полный порядок id колонки-назначения (drag на доске). Нет order → CLI-подобный move в конец.
     if (Array.isArray(b.order)) {
       const order = b.order.map(Number).filter(Number.isInteger);
-      return c.json(placeTask(db, taskId(c), to, order, USER));
+      return c.json(placeTask(getDb(c), taskId(c), to, order, USER));
     }
-    return c.json(moveTask(db, taskId(c), to, USER));
+    return c.json(moveTask(getDb(c), taskId(c), to, USER));
   });
 
   app.post('/api/tasks/:id/block', async (c) => {
     const b = await jsonBody(c);
-    return c.json(blockTask(db, taskId(c), String(b.reason ?? ''), USER));
+    return c.json(blockTask(getDb(c), taskId(c), String(b.reason ?? ''), USER));
   });
 
-  app.post('/api/tasks/:id/unblock', (c) => c.json(unblockTask(db, taskId(c), USER)));
+  app.post('/api/tasks/:id/unblock', (c) => c.json(unblockTask(getDb(c), taskId(c), USER)));
 
   app.post('/api/tasks/:id/comments', async (c) => {
     const b = await jsonBody(c);
-    return c.json(commentTask(db, taskId(c), String(b.body ?? ''), USER));
+    return c.json(commentTask(getDb(c), taskId(c), String(b.body ?? ''), USER));
   });
 
   return app;
@@ -113,13 +144,14 @@ function mountStatic(app: Hono, publicDir: string): void {
 }
 
 export function startUi(
-  db: Database.Database, port: number,
+  getDb: (c: Context) => Database.Database, port: number, defaultHash = '',
 ): Promise<{ url: string; close: () => void }> {
-  const app = createApp(db);
+  const app = createApp(getDb, defaultHash);
   mountStatic(app, join(dirname(fileURLToPath(import.meta.url)), 'public'));
-  return new Promise((res) => {
+  return new Promise((res, rej) => {
     const server = serve({ fetch: app.fetch, port }, (info) => {
       res({ url: `http://localhost:${info.port}`, close: () => server.close() });
     });
+    server.on('error', rej); // порт занят не-kdd → отдаём ошибку в cli, а не виснем
   });
 }

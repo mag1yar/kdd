@@ -60,13 +60,12 @@ function fail(msg, json) {
 
 // src/render.ts
 import {
+  CAPS,
   STATUSES,
+  capText as cap,
   now
 } from "@kddkit/core";
-function cap(s, n) {
-  if (s.length <= n) return s;
-  return `${s.slice(0, n)}\u2026 [+${s.length - n} chars]`;
-}
+import { capText } from "@kddkit/core";
 function renderAge(epoch) {
   const d = now() - epoch;
   if (d < 3600) return `${Math.max(1, Math.floor(d / 60))}m`;
@@ -74,17 +73,16 @@ function renderAge(epoch) {
   return `${Math.floor(d / 86400)}d`;
 }
 function taskLine(t) {
-  const bits = [`#${t.id}`, cap(t.title, 50), `[${t.priority}]`];
+  const bits = [`#${t.id}`, cap(t.title, CAPS.titleChars), `[${t.priority}]`];
   if (t.area) bits.push(`@${t.area}`);
-  if (t.blocked) bits.push(`BLOCKED: ${cap(t.block_reason ?? "", 40)}`);
+  if (t.blocked) bits.push(`BLOCKED: ${cap(t.block_reason ?? "", CAPS.blockReasonChars)}`);
   return `  ${bits.join(" ")}`;
 }
-var MAX_ROWS_PER_COLUMN = 8;
 function renderBoard(b) {
   const lines = [];
   for (const s of STATUSES) {
     lines.push(`${s} (${b[s].length})`);
-    const shown = b[s].slice(0, MAX_ROWS_PER_COLUMN);
+    const shown = b[s].slice(0, CAPS.boardRows);
     for (const t of shown) lines.push(taskLine(t));
     if (b[s].length > shown.length) {
       lines.push(`  (+${b[s].length - shown.length} more, use --status ${s})`);
@@ -92,49 +90,46 @@ function renderBoard(b) {
   }
   return lines.join("\n");
 }
-var MAX_BODY = 8192;
-var MAX_COMMENTS = 20;
 function renderShow(d) {
   const t = d.task;
   const lines = [
     `#${t.id} ${t.title}`,
     `status: ${t.status}${t.blocked ? ` (BLOCKED: ${t.block_reason})` : ""}  priority: ${t.priority}${t.area ? `  area: ${t.area}` : ""}${t.archived_at ? "  ARCHIVED" : ""}`
   ];
-  if (t.body) lines.push("", cap(t.body, MAX_BODY));
+  if (t.body) lines.push("", cap(t.body, CAPS.bodyChars));
   if (d.links.length) {
     lines.push("", "links:");
-    for (const l of d.links) lines.push(`  ${l.kind} #${l.id} ${cap(l.title, 50)}`);
+    for (const l of d.links) lines.push(`  ${l.kind} #${l.id} ${cap(l.title, CAPS.titleChars)}`);
   }
   if (d.comments.length) {
     lines.push("", `comments (${d.comments.length}):`);
-    const shown = d.comments.slice(-MAX_COMMENTS);
+    const shown = d.comments.slice(-CAPS.comments);
     if (shown.length < d.comments.length) {
       lines.push(`  (${d.comments.length - shown.length} earlier omitted)`);
     }
     for (const c of shown) {
-      lines.push(`  [${c.author} ${renderAge(c.created_at)} ago] ${cap(c.body, 500)}`);
+      lines.push(`  [${c.author} ${renderAge(c.created_at)} ago] ${cap(c.body, CAPS.commentChars)}`);
     }
   }
   lines.push("", "history:");
-  for (const e of d.events.slice(-10)) {
+  for (const e of d.events.slice(-CAPS.events)) {
     lines.push(`  ${renderAge(e.created_at)} ago ${e.actor_type} ${e.action}${e.detail ? ` ${e.detail}` : ""}`);
   }
   return lines.join("\n");
 }
-var MAX_RECALL = 4096;
 function renderRecall(hits) {
   if (hits.length === 0) return "no results";
   const line = (h) => {
     const snip = h.snippet.replace(/\s+/g, " ").trim();
     if (h.kind === "decision") {
       const tag = h.superseded_by ? ` [superseded by ${h.superseded_by}]` : "";
-      return `decision ${h.ref}${tag} ${cap(h.title, 60)} \u2014 ${snip}`;
+      return `decision ${h.ref}${tag} ${cap(h.title, CAPS.recallTitleChars)} \u2014 ${snip}`;
     }
-    return `task #${h.ref} [${h.status ?? "?"}] ${cap(h.title, 60)} \u2014 ${snip}`;
+    return `task #${h.ref} [${h.status ?? "?"}] ${cap(h.title, CAPS.recallTitleChars)} \u2014 ${snip}`;
   };
   const all = hits.map(line);
   const shown = [...all];
-  while (shown.length > 1 && Buffer.byteLength(shown.join("\n"), "utf8") > MAX_RECALL - 32) {
+  while (shown.length > 1 && Buffer.byteLength(shown.join("\n"), "utf8") > CAPS.recallBytes - 32) {
     shown.pop();
   }
   if (shown.length < all.length) shown.push(`(+${all.length - shown.length} more, use -k)`);
@@ -145,14 +140,14 @@ function renderTracks(ts) {
   return ts.map((t) => {
     const head = `#${t.id} ${t.name} (${t.open_tasks})${t.status === "done" ? " DONE" : ""}`;
     return t.description ? `${head}
-  ${cap(t.description, 200)}` : head;
+  ${cap(t.description, CAPS.trackDescChars)}` : head;
   }).join("\n");
 }
 function renderStatus(d) {
   const lines = [];
   const section = (name, ts) => {
     lines.push(`${name} (${ts.length})`);
-    const shown = ts.slice(0, 5);
+    const shown = ts.slice(0, CAPS.statusRows);
     for (const t of shown) lines.push(taskLine(t));
     if (ts.length > shown.length) lines.push(`  (+${ts.length - shown.length} more)`);
   };

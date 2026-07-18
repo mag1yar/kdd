@@ -1,5 +1,24 @@
 import Database from 'better-sqlite3';
 
+declare const CAPS: {
+    readonly boardRows: 8;
+    readonly statusRows: 5;
+    readonly statusEvents: 5;
+    readonly titleChars: 50;
+    readonly blockReasonChars: 40;
+    readonly bodyChars: 8192;
+    readonly comments: 20;
+    readonly commentChars: 500;
+    readonly events: 10;
+    readonly recallK: 10;
+    readonly recallKMax: 50;
+    readonly recallSnippetTokens: 12;
+    readonly recallBytes: 4096;
+    readonly recallTitleChars: 60;
+    readonly trackDescChars: 200;
+};
+declare function capText(s: string, n: number): string;
+
 declare const now: () => number;
 declare const MIGRATIONS: string[];
 declare function openDb(dbPath: string, projectPath?: string): Database.Database;
@@ -193,4 +212,4 @@ declare function exportBoard(db: Database.Database): {
     events: EventRow[];
 };
 
-export { type Actor, type Comment, type DecisionInput, type EventRow, KddError, MIGRATIONS, PRIORITIES, type ParsedDecision, type Priority, type RecallHit, STATUSES, type Status, TRANSITIONS, type Task, type Track, addDecision, addTask, appendEvent, archiveTask, authorOf, blockTask, boardData, checkMove, commentTask, contentHash, createTrack, deleteTrack, editTask, editTrack, exportBoard, kddHome, linkTasks, listProjects, listTracks, logError, moveTask, mustGetTask, mustGetTrack, now, openDb, parseDecisionMd, placeTask, rebuild, recall, renderDecisionBody, renderDecisionMd, resolveDbPath, resolveDecisionsDir, sanitizeQuery, slugify, statusDigest, syncIndex, taskDetail, unarchiveTask, unblockTask };
+export { type Actor, CAPS, type Comment, type DecisionInput, type EventRow, KddError, MIGRATIONS, PRIORITIES, type ParsedDecision, type Priority, type RecallHit, STATUSES, type Status, TRANSITIONS, type Task, type Track, addDecision, addTask, appendEvent, archiveTask, authorOf, blockTask, boardData, capText, checkMove, commentTask, contentHash, createTrack, deleteTrack, editTask, editTrack, exportBoard, kddHome, linkTasks, listProjects, listTracks, logError, moveTask, mustGetTask, mustGetTrack, now, openDb, parseDecisionMd, placeTask, rebuild, recall, renderDecisionBody, renderDecisionMd, resolveDbPath, resolveDecisionsDir, sanitizeQuery, slugify, statusDigest, syncIndex, taskDetail, unarchiveTask, unblockTask };

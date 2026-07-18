@@ -22,6 +22,21 @@ describe('getTask', () => {
     const db = mk();
     expect(() => getTask(db, 999)).toThrow(/not found/);
   });
+
+  it('caps comments/events/body, totals stay honest', () => {
+    const db = mk();
+    const t = addTask(db, { title: 'whale', body: 'x'.repeat(9000) }, user);
+    for (let i = 0; i < 25; i++) updateTask(db, { id: t.id, comment: `c${i} ${'y'.repeat(600)}` }, ai);
+    const d = getTask(db, t.id);
+    expect(d.comments.length).toBe(20);
+    expect(d.comments_total).toBe(25);
+    expect(d.comments.at(-1)!.body).toMatch(/^c24 /); // последние, не первые
+    expect(d.comments[0]!.body).toContain('chars]'); // тело коммента капировано
+    expect(d.events.length).toBe(10);
+    expect(d.events_total).toBeGreaterThan(10);
+    expect(d.task.body!.length).toBeLessThan(9000);
+    expect(d.task.body).toContain('chars]');
+  });
 });
 
 describe('listTasks', () => {
@@ -41,6 +56,15 @@ describe('listTasks', () => {
     addTask(db, { title: 'a' }, user);
     expect(listTasks(db, { status: 'in_progress' }).in_progress).toEqual([]);
     expect(listTasks(db, { status: 'new' }).new.length).toBe(1);
+  });
+
+  it('caps rows per status and reports omitted', () => {
+    const db = mk();
+    for (let i = 0; i < 11; i++) addTask(db, { title: `t${i}` }, user);
+    const board = listTasks(db);
+    expect(board.new.length).toBe(8);
+    expect(board.omitted).toEqual({ new: 3 });
+    expect(listTasks(db, { status: 'done' }).omitted).toBeUndefined();
   });
 });
 

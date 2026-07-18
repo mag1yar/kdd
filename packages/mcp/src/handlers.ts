@@ -1,6 +1,6 @@
 import type Database from 'better-sqlite3';
 import {
-  boardData, taskDetail, recall, editTask, moveTask, commentTask, mustGetTask,
+  CAPS, capText, boardData, taskDetail, recall, editTask, moveTask, commentTask, mustGetTask,
   listTracks, KddError, type Actor, type Priority, type Status,
 } from '@kddkit/core';
 
@@ -13,13 +13,27 @@ export interface TaskRow {
 }
 
 export function getTask(db: Database.Database, id: number) {
-  return taskDetail(db, id);
+  // те же капы, что kdd show: последние N с явными totals — обрезка не молчит
+  const d = taskDetail(db, id);
+  return {
+    task: {
+      ...d.task,
+      body: d.task.body === null ? null : capText(d.task.body, CAPS.bodyChars),
+    },
+    comments: d.comments.slice(-CAPS.comments)
+      .map((c) => ({ ...c, body: capText(c.body, CAPS.commentChars) })),
+    comments_total: d.comments.length,
+    events: d.events.slice(-CAPS.events),
+    events_total: d.events.length,
+    links: d.links,
+  };
 }
 
 export function listTracksTool(db: Database.Database) {
   // все track-и, включая done: routing → active; done = завершённый пласт работы (контекст)
   return listTracks(db, {}).map((t) => ({
-    id: t.id, name: t.name, description: t.description,
+    id: t.id, name: t.name,
+    description: t.description === null ? null : capText(t.description, CAPS.trackDescChars),
     status: t.status, open_tasks: t.open_tasks,
   }));
 }
@@ -27,16 +41,18 @@ export function listTracksTool(db: Database.Database) {
 export function listTasks(
   db: Database.Database,
   filter: { status?: Status; area?: string; track_id?: number } = {},
-): Record<string, TaskRow[]> {
+): Record<string, TaskRow[]> & { omitted?: Record<string, number> } {
   const board = boardData(db, filter);
   const out: Record<string, TaskRow[]> = {};
+  const omitted: Record<string, number> = {};
   for (const [status, tasks] of Object.entries(board)) {
-    out[status] = tasks.map((t) => ({
+    if (tasks.length > CAPS.boardRows) omitted[status] = tasks.length - CAPS.boardRows;
+    out[status] = tasks.slice(0, CAPS.boardRows).map((t) => ({
       id: t.id, title: t.title, status: t.status,
       priority: t.priority, blocked: !!t.blocked,
     }));
   }
-  return out;
+  return Object.keys(omitted).length ? { ...out, omitted } : out;
 }
 
 export function recallTool(

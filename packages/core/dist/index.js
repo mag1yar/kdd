@@ -1,3 +1,35 @@
+// src/caps.ts
+var CAPS = {
+  boardRows: 8,
+  // строк на колонку: CLI board + MCP list_tasks
+  statusRows: 5,
+  // строк на секцию kdd status
+  statusEvents: 5,
+  // recent-событий в statusDigest
+  titleChars: 50,
+  blockReasonChars: 40,
+  bodyChars: 8192,
+  // тело задачи в show/get_task
+  comments: 20,
+  // последних комментов в show/get_task
+  commentChars: 500,
+  events: 10,
+  // последних событий в show/get_task
+  recallK: 10,
+  // дефолтный top-k
+  recallKMax: 50,
+  // потолок k — больше не отдаём никому
+  recallSnippetTokens: 12,
+  recallBytes: 4096,
+  // бюджет текстовой выдачи kdd recall
+  recallTitleChars: 60,
+  trackDescChars: 200
+};
+function capText(s, n) {
+  if (s.length <= n) return s;
+  return `${s.slice(0, n)}\u2026 [+${s.length - n} chars]`;
+}
+
 // src/db.ts
 import Database from "better-sqlite3";
 import { mkdirSync } from "fs";
@@ -587,7 +619,7 @@ function recall(db, decisionsDir, query, opts = {}) {
   return db.prepare(`
     SELECT search_index.kind AS kind, search_index.ref AS ref,
       search_index.title AS title,
-      snippet(search_index, 3, '', '', '...', 12) AS snippet,
+      snippet(search_index, 3, '', '', '...', ${CAPS.recallSnippetTokens}) AS snippet,
       COALESCE(d.superseded_by, '') AS superseded_by,
       t.status AS status
     FROM search_index
@@ -598,7 +630,11 @@ function recall(db, decisionsDir, query, opts = {}) {
     ORDER BY (COALESCE(d.superseded_by, '') <> ''),
       bm25(search_index, 0, 0, 3.0, 1.0)
     LIMIT @k
-  `).all({ q: sanitizeQuery(query), kind: opts.kind ?? null, k: opts.k ?? 10 });
+  `).all({
+    q: sanitizeQuery(query),
+    kind: opts.kind ?? null,
+    k: Math.min(opts.k ?? CAPS.recallK, CAPS.recallKMax)
+  });
 }
 function rebuild(db, decisionsDir) {
   db.transaction(() => {
@@ -663,7 +699,7 @@ function statusDigest(db) {
     review: q(`status = 'review'`),
     blocked: q(`blocked = 1`),
     recent: db.prepare(
-      `SELECT * FROM events ORDER BY id DESC LIMIT 5`
+      `SELECT * FROM events ORDER BY id DESC LIMIT ${CAPS.statusEvents}`
     ).all()
   };
 }
@@ -676,6 +712,7 @@ function exportBoard(db) {
   };
 }
 export {
+  CAPS,
   KddError,
   MIGRATIONS,
   PRIORITIES,
@@ -688,6 +725,7 @@ export {
   authorOf,
   blockTask,
   boardData,
+  capText,
   checkMove,
   commentTask,
   contentHash,

@@ -21108,6 +21108,36 @@ import Database2 from "better-sqlite3";
 import { createHash as createHash2 } from "crypto";
 import { existsSync as existsSync3, readFileSync as readFileSync2, readdirSync as readdirSync2 } from "fs";
 import { join as join3 } from "path";
+var CAPS = {
+  boardRows: 8,
+  // строк на колонку: CLI board + MCP list_tasks
+  statusRows: 5,
+  // строк на секцию kdd status
+  statusEvents: 5,
+  // recent-событий в statusDigest
+  titleChars: 50,
+  blockReasonChars: 40,
+  bodyChars: 8192,
+  // тело задачи в show/get_task
+  comments: 20,
+  // последних комментов в show/get_task
+  commentChars: 500,
+  events: 10,
+  // последних событий в show/get_task
+  recallK: 10,
+  // дефолтный top-k
+  recallKMax: 50,
+  // потолок k — больше не отдаём никому
+  recallSnippetTokens: 12,
+  recallBytes: 4096,
+  // бюджет текстовой выдачи kdd recall
+  recallTitleChars: 60,
+  trackDescChars: 200
+};
+function capText(s, n) {
+  if (s.length <= n) return s;
+  return `${s.slice(0, n)}\u2026 [+${s.length - n} chars]`;
+}
 var now = () => Math.floor(Date.now() / 1e3);
 var MIGRATIONS = [
   `
@@ -21442,9 +21472,13 @@ function syncIndex(db, decisionsDir) {
   })();
 }
 function sanitizeQuery(q) {
-  const tokens = q.split(/\s+/).filter(Boolean).map((t) => `"${t.replace(/"/g, '""')}"`);
-  if (tokens.length === 0) throw new KddError("empty query");
-  return tokens.join(" ");
+  const parts = [];
+  for (const m of q.matchAll(/"([^"]+)"|[\p{L}\p{N}_][\p{L}\p{N}_.-]*/gu)) {
+    const raw = m[1] !== void 0 ? m[1].trim() : m[0].replace(/^[._-]+|[._-]+$/g, "");
+    if (raw) parts.push(`"${raw.replace(/"/g, '""')}"`);
+  }
+  if (parts.length === 0) throw new KddError("empty query");
+  return parts.join(" ");
 }
 function recall(db, decisionsDir, query, opts = {}) {
   if (opts.kind && opts.kind !== "decision" && opts.kind !== "task") {
@@ -21454,7 +21488,7 @@ function recall(db, decisionsDir, query, opts = {}) {
   return db.prepare(`
     SELECT search_index.kind AS kind, search_index.ref AS ref,
       search_index.title AS title,
-      snippet(search_index, 3, '', '', '...', 12) AS snippet,
+      snippet(search_index, 3, '', '', '...', ${CAPS.recallSnippetTokens}) AS snippet,
       COALESCE(d.superseded_by, '') AS superseded_by,
       t.status AS status
     FROM search_index
@@ -21465,7 +21499,11 @@ function recall(db, decisionsDir, query, opts = {}) {
     ORDER BY (COALESCE(d.superseded_by, '') <> ''),
       bm25(search_index, 0, 0, 3.0, 1.0)
     LIMIT @k
-  `).all({ q: sanitizeQuery(query), kind: opts.kind ?? null, k: opts.k ?? 10 });
+  `).all({
+    q: sanitizeQuery(query),
+    kind: opts.kind ?? null,
+    k: Math.min(opts.k ?? CAPS.recallK, CAPS.recallKMax)
+  });
 }
 var PRIORITY_ORDER = `CASE priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END`;
 function boardData(db, f = {}) {
@@ -21509,13 +21547,24 @@ function taskDetail(db, id) {
 
 // src/handlers.ts
 function getTask(db, id) {
-  return taskDetail(db, id);
+  const d = taskDetail(db, id);
+  return {
+    task: {
+      ...d.task,
+      body: d.task.body === null ? null : capText(d.task.body, CAPS.bodyChars)
+    },
+    comments: d.comments.slice(-CAPS.comments).map((c) => ({ ...c, body: capText(c.body, CAPS.commentChars) })),
+    comments_total: d.comments.length,
+    events: d.events.slice(-CAPS.events),
+    events_total: d.events.length,
+    links: d.links
+  };
 }
 function listTracksTool(db) {
   return listTracks(db, {}).map((t) => ({
     id: t.id,
     name: t.name,
-    description: t.description,
+    description: t.description === null ? null : capText(t.description, CAPS.trackDescChars),
     status: t.status,
     open_tasks: t.open_tasks
   }));
@@ -21523,8 +21572,10 @@ function listTracksTool(db) {
 function listTasks(db, filter = {}) {
   const board = boardData(db, filter);
   const out = {};
+  const omitted = {};
   for (const [status, tasks] of Object.entries(board)) {
-    out[status] = tasks.map((t) => ({
+    if (tasks.length > CAPS.boardRows) omitted[status] = tasks.length - CAPS.boardRows;
+    out[status] = tasks.slice(0, CAPS.boardRows).map((t) => ({
       id: t.id,
       title: t.title,
       status: t.status,
@@ -21532,7 +21583,7 @@ function listTasks(db, filter = {}) {
       blocked: !!t.blocked
     }));
   }
-  return out;
+  return Object.keys(omitted).length ? { ...out, omitted } : out;
 }
 function recallTool(db, dir, query, opts = {}) {
   return recall(db, dir, query, opts);
@@ -21573,7 +21624,7 @@ function createServer(db, dir, actor) {
   server.registerTool(
     "get_task",
     {
-      description: "Full task with comments, events and links",
+      description: "Task with links, last 20 comments and last 10 events (comments_total/events_total show the full counts)",
       inputSchema: { id: external_exports.number().int().positive() }
     },
     async ({ id }) => guard(db, () => getTask(db, id))
@@ -21581,7 +21632,7 @@ function createServer(db, dir, actor) {
   server.registerTool(
     "list_tasks",
     {
-      description: "Compact board rows grouped by status (no body)",
+      description: "Compact board rows grouped by status (no body), top 8 per status; an omitted map names truncated columns \u2014 narrow with status/track_id/area",
       inputSchema: {
         status: statusEnum.optional(),
         area: external_exports.string().optional(),

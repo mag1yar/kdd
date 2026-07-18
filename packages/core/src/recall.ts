@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import type Database from 'better-sqlite3';
+import { CAPS } from './caps.js';
 import { KddError } from './errors.js';
 import { parseDecisionMd } from './decisions.js';
 
@@ -101,7 +102,7 @@ export function recall(
   return db.prepare(`
     SELECT search_index.kind AS kind, search_index.ref AS ref,
       search_index.title AS title,
-      snippet(search_index, 3, '', '', '...', 12) AS snippet,
+      snippet(search_index, 3, '', '', '...', ${CAPS.recallSnippetTokens}) AS snippet,
       COALESCE(d.superseded_by, '') AS superseded_by,
       t.status AS status
     FROM search_index
@@ -112,7 +113,10 @@ export function recall(
     ORDER BY (COALESCE(d.superseded_by, '') <> ''),
       bm25(search_index, 0, 0, 3.0, 1.0)
     LIMIT @k
-  `).all({ q: sanitizeQuery(query), kind: opts.kind ?? null, k: opts.k ?? 10 }) as RecallHit[];
+  `).all({
+    q: sanitizeQuery(query), kind: opts.kind ?? null,
+    k: Math.min(opts.k ?? CAPS.recallK, CAPS.recallKMax),
+  }) as RecallHit[];
 }
 
 export function rebuild(

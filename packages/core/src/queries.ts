@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3';
+import { CAPS } from './caps.js';
 import { STATUSES, type Status } from './state.js';
 import type { Comment, EventRow, Task } from './types.js';
 import { mustGetTask } from './ops.js';
@@ -53,7 +54,7 @@ export function statusDigest(db: Database.Database): {
     review: q(`status = 'review'`),
     blocked: q(`blocked = 1`),
     recent: db.prepare(
-      `SELECT * FROM events ORDER BY id DESC LIMIT 5`).all() as EventRow[],
+      `SELECT * FROM events ORDER BY id DESC LIMIT ${CAPS.statusEvents}`).all() as EventRow[],
   };
 }
 

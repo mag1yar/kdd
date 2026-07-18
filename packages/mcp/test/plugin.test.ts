@@ -7,13 +7,10 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const read = (p: string) => readFileSync(join(root, p), 'utf8');
 
 describe('plugin files', () => {
-  it('manifest names the plugin kdd', () => {
-    expect(JSON.parse(read('.claude-plugin/plugin.json')).name).toBe('kdd');
-  });
-
-  it('.mcp.json registers the kdd server via CLAUDE_PLUGIN_ROOT', () => {
-    const mcp = JSON.parse(read('.mcp.json'));
-    const kdd = mcp.mcpServers.kdd;
+  it('manifest names the plugin kddkit and registers the kdd server', () => {
+    const manifest = JSON.parse(read('.claude-plugin/plugin.json'));
+    expect(manifest.name).toBe('kddkit');
+    const kdd = manifest.mcpServers.kdd;
     expect(kdd.command).toBe('node');
     expect(kdd.args.join(' ')).toContain('${CLAUDE_PLUGIN_ROOT}');
     expect(kdd.args.join(' ')).toContain('packages/mcp/dist/main.js');
@@ -24,6 +21,13 @@ describe('plugin files', () => {
     const cmd = hooks.hooks.SessionStart[0].hooks[0].command;
     expect(cmd).toContain('smart-install.mjs');
     expect(cmd).toContain('session-start.mjs');
+  });
+
+  it('hooks.json wires SubagentStart to the pointer script', () => {
+    const hooks = JSON.parse(read('hooks/hooks.json'));
+    const cmd = hooks.hooks.SubagentStart[0].hooks[0].command;
+    expect(cmd).toContain('session-start.mjs');
+    expect(cmd).not.toContain('smart-install.mjs');
   });
 
   it('skill declares the kdd contract with an Iron Law', () => {

@@ -98,6 +98,10 @@ export function recall(
   if (opts.kind && opts.kind !== 'decision' && opts.kind !== 'task') {
     throw new KddError(`invalid kind '${opts.kind}'; allowed: decision, task`);
   }
+  const k = opts.k ?? CAPS.recallK;
+  if (!Number.isInteger(k) || k < 1 || k > CAPS.recallKMax) {
+    throw new KddError(`k must be 1..${CAPS.recallKMax}`);
+  }
   syncIndex(db, decisionsDir);
   return db.prepare(`
     SELECT search_index.kind AS kind, search_index.ref AS ref,
@@ -114,8 +118,7 @@ export function recall(
       bm25(search_index, 0, 0, 3.0, 1.0)
     LIMIT @k
   `).all({
-    q: sanitizeQuery(query), kind: opts.kind ?? null,
-    k: Math.min(opts.k ?? CAPS.recallK, CAPS.recallKMax),
+    q: sanitizeQuery(query), kind: opts.kind ?? null, k,
   }) as RecallHit[];
 }
 

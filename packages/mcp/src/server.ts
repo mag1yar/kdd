@@ -3,7 +3,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import {
-  KddError, logError, openDb, resolveDbPath, resolveDecisionsDir,
+  CAPS, KddError, logError, openDb, resolveDbPath, resolveDecisionsDir,
   PRIORITIES, STATUSES, type Actor, type Status,
 } from '@kddkit/core';
 import * as h from './handlers.js';
@@ -33,16 +33,18 @@ export function createServer(db: Database.Database, dir: string, actor: Actor): 
 
   server.registerTool('get_task',
     {
-      description: 'Task with links, last 20 comments and last 10 events '
-        + '(comments_total/events_total show the full counts)',
-      inputSchema: { id: z.number().int().positive() },
+      description: `Task with links, last ${CAPS.comments} comments and last ${CAPS.events} `
+        + 'events (comments_total/events_total show the full counts); '
+        + 'full=true returns the complete uncapped history',
+      inputSchema: { id: z.number().int().positive(), full: z.boolean().optional() },
     },
-    async ({ id }) => guard(db, () => h.getTask(db, id)));
+    async ({ id, full }) => guard(db, () => h.getTask(db, id, full)));
 
   server.registerTool('list_tasks',
     {
-      description: 'Compact board rows grouped by status (no body), top 8 per status; '
-        + 'an omitted map names truncated columns — narrow with status/track_id/area',
+      description: 'Compact board rows in tasks, grouped by status (no body), top '
+        + `${CAPS.boardRows} per status; an omitted map names truncated columns — `
+        + 'narrow with status/track_id/area',
       inputSchema: {
         status: statusEnum.optional(), area: z.string().optional(),
         track_id: z.number().int().positive().optional(),
@@ -61,10 +63,10 @@ export function createServer(db: Database.Database, dir: string, actor: Actor): 
 
   server.registerTool('recall',
     {
-      description: 'FTS5 search over decisions and tasks, top-k',
+      description: `FTS5 search over decisions and tasks, top-k (k 1..${CAPS.recallKMax})`,
       inputSchema: {
         query: z.string(),
-        k: z.number().int().positive().optional(),
+        k: z.number().int().min(1).max(CAPS.recallKMax).optional(),
         kind: z.enum(['decision', 'task']).optional(),
       },
     },

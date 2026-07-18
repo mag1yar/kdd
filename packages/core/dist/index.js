@@ -27,7 +27,8 @@ var CAPS = {
 };
 function capText(s, n) {
   if (s.length <= n) return s;
-  return `${s.slice(0, n)}\u2026 [+${s.length - n} chars]`;
+  const cut = n - ((s.charCodeAt(n - 1) & 64512) === 55296 ? 1 : 0);
+  return `${s.slice(0, cut)}\u2026 [+${s.length - cut} chars]`;
 }
 
 // src/db.ts
@@ -615,6 +616,10 @@ function recall(db, decisionsDir, query, opts = {}) {
   if (opts.kind && opts.kind !== "decision" && opts.kind !== "task") {
     throw new KddError(`invalid kind '${opts.kind}'; allowed: decision, task`);
   }
+  const k = opts.k ?? CAPS.recallK;
+  if (!Number.isInteger(k) || k < 1 || k > CAPS.recallKMax) {
+    throw new KddError(`k must be 1..${CAPS.recallKMax}`);
+  }
   syncIndex(db, decisionsDir);
   return db.prepare(`
     SELECT search_index.kind AS kind, search_index.ref AS ref,
@@ -633,7 +638,7 @@ function recall(db, decisionsDir, query, opts = {}) {
   `).all({
     q: sanitizeQuery(query),
     kind: opts.kind ?? null,
-    k: Math.min(opts.k ?? CAPS.recallK, CAPS.recallKMax)
+    k
   });
 }
 function rebuild(db, decisionsDir) {
@@ -687,6 +692,20 @@ function taskDetail(db, id) {
      WHERE l.from_id = ? OR l.to_id = ?`
   ).all(id, id, id);
   return { task, comments, events, links };
+}
+function taskDetailCapped(db, id) {
+  const d = taskDetail(db, id);
+  return {
+    task: {
+      ...d.task,
+      body: d.task.body === null ? null : capText(d.task.body, CAPS.bodyChars)
+    },
+    comments: d.comments.slice(-CAPS.comments).map((c) => ({ ...c, body: capText(c.body, CAPS.commentChars) })),
+    comments_total: d.comments.length,
+    events: d.events.slice(-CAPS.events),
+    events_total: d.events.length,
+    links: d.links
+  };
 }
 function statusDigest(db) {
   const active = `archived_at IS NULL`;
@@ -757,6 +776,7 @@ export {
   statusDigest,
   syncIndex,
   taskDetail,
+  taskDetailCapped,
   unarchiveTask,
   unblockTask
 };

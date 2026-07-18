@@ -20,5 +20,7 @@ export const CAPS = {
 
 export function capText(s: string, n: number): string {
   if (s.length <= n) return s;
-  return `${s.slice(0, n)}… [+${s.length - n} chars]`;
+  // не резать суррогатную пару — lone surrogate ломает строгий JSON/UTF-8
+  const cut = n - ((s.charCodeAt(n - 1) & 0xfc00) === 0xd800 ? 1 : 0);
+  return `${s.slice(0, cut)}… [+${s.length - cut} chars]`;
 }

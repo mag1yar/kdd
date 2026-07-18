@@ -199,6 +199,19 @@ declare function taskDetail(db: Database.Database, id: number): {
         kind: string;
     }[];
 };
+interface TaskDetailCapped {
+    task: Task;
+    comments: Comment[];
+    comments_total: number;
+    events: EventRow[];
+    events_total: number;
+    links: {
+        id: number;
+        title: string;
+        kind: string;
+    }[];
+}
+declare function taskDetailCapped(db: Database.Database, id: number): TaskDetailCapped;
 declare function statusDigest(db: Database.Database): {
     in_progress: Task[];
     review: Task[];
@@ -212,4 +225,4 @@ declare function exportBoard(db: Database.Database): {
     events: EventRow[];
 };
 
-export { type Actor, CAPS, type Comment, type DecisionInput, type EventRow, KddError, MIGRATIONS, PRIORITIES, type ParsedDecision, type Priority, type RecallHit, STATUSES, type Status, TRANSITIONS, type Task, type Track, addDecision, addTask, appendEvent, archiveTask, authorOf, blockTask, boardData, capText, checkMove, commentTask, contentHash, createTrack, deleteTrack, editTask, editTrack, exportBoard, kddHome, linkTasks, listProjects, listTracks, logError, moveTask, mustGetTask, mustGetTrack, now, openDb, parseDecisionMd, placeTask, rebuild, recall, renderDecisionBody, renderDecisionMd, resolveDbPath, resolveDecisionsDir, sanitizeQuery, slugify, statusDigest, syncIndex, taskDetail, unarchiveTask, unblockTask };
+export { type Actor, CAPS, type Comment, type DecisionInput, type EventRow, KddError, MIGRATIONS, PRIORITIES, type ParsedDecision, type Priority, type RecallHit, STATUSES, type Status, TRANSITIONS, type Task, type TaskDetailCapped, type Track, addDecision, addTask, appendEvent, archiveTask, authorOf, blockTask, boardData, capText, checkMove, commentTask, contentHash, createTrack, deleteTrack, editTask, editTrack, exportBoard, kddHome, linkTasks, listProjects, listTracks, logError, moveTask, mustGetTask, mustGetTrack, now, openDb, parseDecisionMd, placeTask, rebuild, recall, renderDecisionBody, renderDecisionMd, resolveDbPath, resolveDecisionsDir, sanitizeQuery, slugify, statusDigest, syncIndex, taskDetail, taskDetailCapped, unarchiveTask, unblockTask };

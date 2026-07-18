@@ -110,7 +110,10 @@ CLI equivalents.
   Valid statuses: backlog, new, in_progress, review, done. A move that skips the
   normal flow needs `move.reason` explaining that the user asked for it.
 - Edit a task's fields with `update_task { id, edit: { ... } }`.
-- `get_task { id }` returns the full task with its comments and event trail.
+- `get_task { id }` returns the task with its most recent comments and events;
+  `comments_total` / `events_total` show the real counts. When the trail is
+  longer than what you received and the history matters, call
+  `get_task { id, full: true }` for the complete, uncapped record.
 
 ## Decisions
 

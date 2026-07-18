@@ -21136,7 +21136,8 @@ var CAPS = {
 };
 function capText(s, n) {
   if (s.length <= n) return s;
-  return `${s.slice(0, n)}\u2026 [+${s.length - n} chars]`;
+  const cut = n - ((s.charCodeAt(n - 1) & 64512) === 55296 ? 1 : 0);
+  return `${s.slice(0, cut)}\u2026 [+${s.length - cut} chars]`;
 }
 var now = () => Math.floor(Date.now() / 1e3);
 var MIGRATIONS = [
@@ -21484,6 +21485,10 @@ function recall(db, decisionsDir, query, opts = {}) {
   if (opts.kind && opts.kind !== "decision" && opts.kind !== "task") {
     throw new KddError(`invalid kind '${opts.kind}'; allowed: decision, task`);
   }
+  const k = opts.k ?? CAPS.recallK;
+  if (!Number.isInteger(k) || k < 1 || k > CAPS.recallKMax) {
+    throw new KddError(`k must be 1..${CAPS.recallKMax}`);
+  }
   syncIndex(db, decisionsDir);
   return db.prepare(`
     SELECT search_index.kind AS kind, search_index.ref AS ref,
@@ -21502,7 +21507,7 @@ function recall(db, decisionsDir, query, opts = {}) {
   `).all({
     q: sanitizeQuery(query),
     kind: opts.kind ?? null,
-    k: Math.min(opts.k ?? CAPS.recallK, CAPS.recallKMax)
+    k
   });
 }
 var PRIORITY_ORDER = `CASE priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END`;
@@ -21544,9 +21549,7 @@ function taskDetail(db, id) {
   ).all(id, id, id);
   return { task, comments, events, links };
 }
-
-// src/handlers.ts
-function getTask(db, id) {
+function taskDetailCapped(db, id) {
   const d = taskDetail(db, id);
   return {
     task: {
@@ -21560,6 +21563,11 @@ function getTask(db, id) {
     links: d.links
   };
 }
+
+// src/handlers.ts
+function getTask(db, id, full = false) {
+  return full ? taskDetail(db, id) : taskDetailCapped(db, id);
+}
 function listTracksTool(db) {
   return listTracks(db, {}).map((t) => ({
     id: t.id,
@@ -21571,11 +21579,11 @@ function listTracksTool(db) {
 }
 function listTasks(db, filter = {}) {
   const board = boardData(db, filter);
-  const out = {};
+  const tasks = {};
   const omitted = {};
-  for (const [status, tasks] of Object.entries(board)) {
-    if (tasks.length > CAPS.boardRows) omitted[status] = tasks.length - CAPS.boardRows;
-    out[status] = tasks.slice(0, CAPS.boardRows).map((t) => ({
+  for (const [status, rows] of Object.entries(board)) {
+    if (rows.length > CAPS.boardRows) omitted[status] = rows.length - CAPS.boardRows;
+    tasks[status] = rows.slice(0, CAPS.boardRows).map((t) => ({
       id: t.id,
       title: t.title,
       status: t.status,
@@ -21583,7 +21591,7 @@ function listTasks(db, filter = {}) {
       blocked: !!t.blocked
     }));
   }
-  return Object.keys(omitted).length ? { ...out, omitted } : out;
+  return Object.keys(omitted).length ? { tasks, omitted } : { tasks };
 }
 function recallTool(db, dir, query, opts = {}) {
   return recall(db, dir, query, opts);
@@ -21624,15 +21632,15 @@ function createServer(db, dir, actor) {
   server.registerTool(
     "get_task",
     {
-      description: "Task with links, last 20 comments and last 10 events (comments_total/events_total show the full counts)",
-      inputSchema: { id: external_exports.number().int().positive() }
+      description: `Task with links, last ${CAPS.comments} comments and last ${CAPS.events} events (comments_total/events_total show the full counts); full=true returns the complete uncapped history`,
+      inputSchema: { id: external_exports.number().int().positive(), full: external_exports.boolean().optional() }
     },
-    async ({ id }) => guard(db, () => getTask(db, id))
+    async ({ id, full }) => guard(db, () => getTask(db, id, full))
   );
   server.registerTool(
     "list_tasks",
     {
-      description: "Compact board rows grouped by status (no body), top 8 per status; an omitted map names truncated columns \u2014 narrow with status/track_id/area",
+      description: `Compact board rows in tasks, grouped by status (no body), top ${CAPS.boardRows} per status; an omitted map names truncated columns \u2014 narrow with status/track_id/area`,
       inputSchema: {
         status: statusEnum.optional(),
         area: external_exports.string().optional(),
@@ -21652,10 +21660,10 @@ function createServer(db, dir, actor) {
   server.registerTool(
     "recall",
     {
-      description: "FTS5 search over decisions and tasks, top-k",
+      description: `FTS5 search over decisions and tasks, top-k (k 1..${CAPS.recallKMax})`,
       inputSchema: {
         query: external_exports.string(),
-        k: external_exports.number().int().positive().optional(),
+        k: external_exports.number().int().min(1).max(CAPS.recallKMax).optional(),
         kind: external_exports.enum(["decision", "task"]).optional()
       }
     },

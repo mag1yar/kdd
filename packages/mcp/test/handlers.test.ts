@@ -27,7 +27,9 @@ describe('getTask', () => {
     const db = mk();
     const t = addTask(db, { title: 'whale', body: 'x'.repeat(9000) }, user);
     for (let i = 0; i < 25; i++) updateTask(db, { id: t.id, comment: `c${i} ${'y'.repeat(600)}` }, ai);
-    const d = getTask(db, t.id);
+    const d = getTask(db, t.id) as ReturnType<typeof getTask> & {
+      comments_total: number; events_total: number;
+    };
     expect(d.comments.length).toBe(20);
     expect(d.comments_total).toBe(25);
     expect(d.comments.at(-1)!.body).toMatch(/^c24 /); // последние, не первые
@@ -37,6 +39,15 @@ describe('getTask', () => {
     expect(d.task.body!.length).toBeLessThan(9000);
     expect(d.task.body).toContain('chars]');
   });
+
+  it('full=true returns the uncapped record', () => {
+    const db = mk();
+    const t = addTask(db, { title: 'whale', body: 'x'.repeat(9000) }, user);
+    for (let i = 0; i < 25; i++) updateTask(db, { id: t.id, comment: `c${i}` }, ai);
+    const d = getTask(db, t.id, true);
+    expect(d.comments.length).toBe(25);
+    expect(d.task.body!.length).toBe(9000);
+  });
 });
 
 describe('listTasks', () => {
@@ -44,8 +55,8 @@ describe('listTasks', () => {
     const db = mk();
     addTask(db, { title: 'a', body: 'secret body', priority: 'high' }, user);
     const board = listTasks(db);
-    expect(Object.keys(board)).toEqual(['backlog', 'new', 'in_progress', 'review', 'done']);
-    expect(board.new).toEqual([
+    expect(Object.keys(board.tasks)).toEqual(['backlog', 'new', 'in_progress', 'review', 'done']);
+    expect(board.tasks.new).toEqual([
       { id: 1, title: 'a', status: 'new', priority: 'high', blocked: false },
     ]);
     expect(JSON.stringify(board)).not.toContain('secret body');
@@ -54,16 +65,18 @@ describe('listTasks', () => {
   it('filters by status', () => {
     const db = mk();
     addTask(db, { title: 'a' }, user);
-    expect(listTasks(db, { status: 'in_progress' }).in_progress).toEqual([]);
-    expect(listTasks(db, { status: 'new' }).new.length).toBe(1);
+    expect(listTasks(db, { status: 'in_progress' }).tasks.in_progress).toEqual([]);
+    expect(listTasks(db, { status: 'new' }).tasks.new.length).toBe(1);
   });
 
-  it('caps rows per status and reports omitted', () => {
+  it('caps rows per status and reports omitted outside the status map', () => {
     const db = mk();
     for (let i = 0; i < 11; i++) addTask(db, { title: `t${i}` }, user);
     const board = listTasks(db);
-    expect(board.new.length).toBe(8);
+    expect(board.tasks.new.length).toBe(8);
     expect(board.omitted).toEqual({ new: 3 });
+    // generic-итератор по колонкам не должен спотыкаться об omitted
+    for (const rows of Object.values(board.tasks)) expect(Array.isArray(rows)).toBe(true);
     expect(listTasks(db, { status: 'done' }).omitted).toBeUndefined();
   });
 });

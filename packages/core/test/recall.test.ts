@@ -143,6 +143,15 @@ describe('recall', () => {
     expect(recall(db, dir, 'omega', { k: 3 }).length).toBe(3);
   });
 
+  it('invalid k throws instead of bypassing the cap', () => {
+    const db = openDb(':memory:', 'x');
+    const dir = tmp();
+    addTask(db, { title: 'omega' }, user);
+    for (const k of [-1, 0, 51, 1.5, NaN]) {
+      expect(() => recall(db, dir, 'omega', { k })).toThrow(/k must be 1\.\.50/);
+    }
+  });
+
   it('raw FTS syntax cannot crash recall', () => {
     const db = openDb(':memory:', 'x');
     const dir = tmp();

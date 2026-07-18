@@ -33,7 +33,7 @@ describe('mcp server over a real transport', () => {
     addTask(db, { title: 'hello' }, { type: 'user' });
     const client = await connect(db);
     const res = await client.callTool({ name: 'list_tasks', arguments: {} });
-    expect(textOf(res).new[0].title).toBe('hello');
+    expect(textOf(res).tasks.new[0].title).toBe('hello');
   });
 
   it('update_task mutates and reports isError on bad input', async () => {

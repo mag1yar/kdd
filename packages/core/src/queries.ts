@@ -1,5 +1,5 @@
 import type Database from 'better-sqlite3';
-import { CAPS } from './caps.js';
+import { CAPS, capText } from './caps.js';
 import { STATUSES, type Status } from './state.js';
 import type { Comment, EventRow, Task } from './types.js';
 import { mustGetTask } from './ops.js';
@@ -40,6 +40,32 @@ export function taskDetail(db: Database.Database, id: number): {
      WHERE l.from_id = ? OR l.to_id = ?`,
   ).all(id, id, id) as { id: number; title: string; kind: string }[];
   return { task, comments, events, links };
+}
+
+export interface TaskDetailCapped {
+  task: Task;
+  comments: Comment[];
+  comments_total: number;
+  events: EventRow[];
+  events_total: number;
+  links: { id: number; title: string; kind: string }[];
+}
+
+// Единственный источник trim-политики show/get_task: последние N с честными totals.
+export function taskDetailCapped(db: Database.Database, id: number): TaskDetailCapped {
+  const d = taskDetail(db, id);
+  return {
+    task: {
+      ...d.task,
+      body: d.task.body === null ? null : capText(d.task.body, CAPS.bodyChars),
+    },
+    comments: d.comments.slice(-CAPS.comments)
+      .map((c) => ({ ...c, body: capText(c.body, CAPS.commentChars) })),
+    comments_total: d.comments.length,
+    events: d.events.slice(-CAPS.events),
+    events_total: d.events.length,
+    links: d.links,
+  };
 }
 
 export function statusDigest(db: Database.Database): {

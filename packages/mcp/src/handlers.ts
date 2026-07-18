@@ -1,7 +1,7 @@
 import type Database from 'better-sqlite3';
 import {
-  CAPS, capText, boardData, taskDetail, recall, editTask, moveTask, commentTask, mustGetTask,
-  listTracks, KddError, type Actor, type Priority, type Status,
+  CAPS, capText, boardData, taskDetail, taskDetailCapped, recall, editTask, moveTask,
+  commentTask, mustGetTask, listTracks, KddError, type Actor, type Priority, type Status,
 } from '@kddkit/core';
 
 export interface TaskRow {
@@ -12,21 +12,9 @@ export interface TaskRow {
   blocked: boolean;
 }
 
-export function getTask(db: Database.Database, id: number) {
-  // те же капы, что kdd show: последние N с явными totals — обрезка не молчит
-  const d = taskDetail(db, id);
-  return {
-    task: {
-      ...d.task,
-      body: d.task.body === null ? null : capText(d.task.body, CAPS.bodyChars),
-    },
-    comments: d.comments.slice(-CAPS.comments)
-      .map((c) => ({ ...c, body: capText(c.body, CAPS.commentChars) })),
-    comments_total: d.comments.length,
-    events: d.events.slice(-CAPS.events),
-    events_total: d.events.length,
-    links: d.links,
-  };
+export function getTask(db: Database.Database, id: number, full = false) {
+  // капы — в core taskDetailCapped (та же политика, что kdd show); full — escape hatch
+  return full ? taskDetail(db, id) : taskDetailCapped(db, id);
 }
 
 export function listTracksTool(db: Database.Database) {
@@ -41,18 +29,18 @@ export function listTracksTool(db: Database.Database) {
 export function listTasks(
   db: Database.Database,
   filter: { status?: Status; area?: string; track_id?: number } = {},
-): Record<string, TaskRow[]> & { omitted?: Record<string, number> } {
+): { tasks: Record<string, TaskRow[]>; omitted?: Record<string, number> } {
   const board = boardData(db, filter);
-  const out: Record<string, TaskRow[]> = {};
+  const tasks: Record<string, TaskRow[]> = {};
   const omitted: Record<string, number> = {};
-  for (const [status, tasks] of Object.entries(board)) {
-    if (tasks.length > CAPS.boardRows) omitted[status] = tasks.length - CAPS.boardRows;
-    out[status] = tasks.slice(0, CAPS.boardRows).map((t) => ({
+  for (const [status, rows] of Object.entries(board)) {
+    if (rows.length > CAPS.boardRows) omitted[status] = rows.length - CAPS.boardRows;
+    tasks[status] = rows.slice(0, CAPS.boardRows).map((t) => ({
       id: t.id, title: t.title, status: t.status,
       priority: t.priority, blocked: !!t.blocked,
     }));
   }
-  return Object.keys(omitted).length ? { ...out, omitted } : out;
+  return Object.keys(omitted).length ? { tasks, omitted } : { tasks };
 }
 
 export function recallTool(

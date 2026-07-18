@@ -6,7 +6,7 @@ import {
   KddError, addDecision, addTask, archiveTask, blockTask, boardData, commentTask,
   createTrack, deleteTrack, editTask, editTrack, exportBoard, linkTasks, listProjects, listTracks,
   moveTask, openDb, rebuild, recall, resolveDbPath, resolveDecisionsDir, statusDigest,
-  taskDetail, unarchiveTask, unblockTask, type Status,
+  taskDetail, taskDetailCapped, unarchiveTask, unblockTask, type Status,
 } from '@kddkit/core';
 import { projectPool, startUi } from '@kddkit/ui';
 import { fail, getActor, parseId, withDb } from './context.js';
@@ -81,8 +81,9 @@ program.command('show')
   .argument('<id>')
   .option('--json')
   .action((id, o) => run(o.json, () => {
-    const d = withDb((db) => taskDetail(db, parseId(id)));
-    out(o.json, d, () => renderShow(d));
+    // --json остаётся полным дампом; текст идёт через капы core
+    if (o.json) { out(true, withDb((db) => taskDetail(db, parseId(id))), () => ''); return; }
+    console.log(renderShow(withDb((db) => taskDetailCapped(db, parseId(id)))));
   }));
 
 program.command('move')

@@ -1,9 +1,7 @@
 import {
   CAPS, STATUSES, capText as cap, now,
-  type Comment, type EventRow, type RecallHit, type Status, type Task, type Track,
+  type EventRow, type RecallHit, type Status, type Task, type TaskDetailCapped, type Track,
 } from '@kddkit/core';
-
-export { capText as cap } from '@kddkit/core';
 
 export function renderAge(epoch: number): string {
   const d = now() - epoch;
@@ -32,10 +30,7 @@ export function renderBoard(b: Record<Status, Task[]>): string {
   return lines.join('\n');
 }
 
-export function renderShow(d: {
-  task: Task; comments: Comment[]; events: EventRow[];
-  links: { id: number; title: string; kind: string }[];
-}): string {
+export function renderShow(d: TaskDetailCapped): string {
   const t = d.task;
   const lines = [
     `#${t.id} ${t.title}`,
@@ -43,23 +38,22 @@ export function renderShow(d: {
       `  priority: ${t.priority}${t.area ? `  area: ${t.area}` : ''}` +
       `${t.archived_at ? '  ARCHIVED' : ''}`,
   ];
-  if (t.body) lines.push('', cap(t.body, CAPS.bodyChars));
+  if (t.body) lines.push('', t.body);
   if (d.links.length) {
     lines.push('', 'links:');
     for (const l of d.links) lines.push(`  ${l.kind} #${l.id} ${cap(l.title, CAPS.titleChars)}`);
   }
-  if (d.comments.length) {
-    lines.push('', `comments (${d.comments.length}):`);
-    const shown = d.comments.slice(-CAPS.comments);
-    if (shown.length < d.comments.length) {
-      lines.push(`  (${d.comments.length - shown.length} earlier omitted)`);
+  if (d.comments_total) {
+    lines.push('', `comments (${d.comments_total}):`);
+    if (d.comments.length < d.comments_total) {
+      lines.push(`  (${d.comments_total - d.comments.length} earlier omitted)`);
     }
-    for (const c of shown) {
-      lines.push(`  [${c.author} ${renderAge(c.created_at)} ago] ${cap(c.body, CAPS.commentChars)}`);
+    for (const c of d.comments) {
+      lines.push(`  [${c.author} ${renderAge(c.created_at)} ago] ${c.body}`);
     }
   }
   lines.push('', 'history:');
-  for (const e of d.events.slice(-CAPS.events)) {
+  for (const e of d.events) {
     lines.push(`  ${renderAge(e.created_at)} ago ${e.actor_type} ${e.action}` +
       `${e.detail ? ` ${e.detail}` : ''}`);
   }

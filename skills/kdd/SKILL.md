@@ -118,6 +118,10 @@ Recording a project decision is deliberate and human-gated: propose the
 decision to the user; it is written with `kdd decide` (by the user, or by you via
 the CLI only when the user asked). Decisions are **not** an MCP tool.
 
+Decisions are **append-only**: never edit or delete a decision file. To change
+course, record a new decision with `--supersedes <old-slug>` — the old one stays
+in history as `superseded`, and `recall` ranks the active one above it.
+
 ## Iron Law
 
 **Never make mass or destructive board edits without an explicit user request.**

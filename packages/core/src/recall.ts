@@ -79,11 +79,15 @@ export interface RecallHit {
   status: string | null; // статус задачи, null для решений
 }
 
+// Свободный текст → консервативный FTS5 MATCH: слова и "фразы", операторы мертвы.
 export function sanitizeQuery(q: string): string {
-  const tokens = q.split(/\s+/).filter(Boolean)
-    .map((t) => `"${t.replace(/"/g, '""')}"`);
-  if (tokens.length === 0) throw new KddError('empty query');
-  return tokens.join(' ');
+  const parts: string[] = [];
+  for (const m of q.matchAll(/"([^"]+)"|[\p{L}\p{N}_][\p{L}\p{N}_.-]*/gu)) {
+    const raw = m[1] !== undefined ? m[1].trim() : m[0].replace(/^[._-]+|[._-]+$/g, '');
+    if (raw) parts.push(`"${raw.replace(/"/g, '""')}"`);
+  }
+  if (parts.length === 0) throw new KddError('empty query');
+  return parts.join(' ');
 }
 
 export function recall(

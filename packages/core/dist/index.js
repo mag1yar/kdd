@@ -571,9 +571,13 @@ function syncIndex(db, decisionsDir) {
   })();
 }
 function sanitizeQuery(q) {
-  const tokens = q.split(/\s+/).filter(Boolean).map((t) => `"${t.replace(/"/g, '""')}"`);
-  if (tokens.length === 0) throw new KddError("empty query");
-  return tokens.join(" ");
+  const parts = [];
+  for (const m of q.matchAll(/"([^"]+)"|[\p{L}\p{N}_][\p{L}\p{N}_.-]*/gu)) {
+    const raw = m[1] !== void 0 ? m[1].trim() : m[0].replace(/^[._-]+|[._-]+$/g, "");
+    if (raw) parts.push(`"${raw.replace(/"/g, '""')}"`);
+  }
+  if (parts.length === 0) throw new KddError("empty query");
+  return parts.join(" ");
 }
 function recall(db, decisionsDir, query, opts = {}) {
   if (opts.kind && opts.kind !== "decision" && opts.kind !== "task") {

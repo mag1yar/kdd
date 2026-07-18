@@ -178,6 +178,13 @@ describe('rebuild', () => {
 describe('sanitizeQuery', () => {
   it('quotes every token', () => {
     expect(sanitizeQuery('hello world')).toBe('"hello" "world"');
-    expect(sanitizeQuery('say "hi"')).toBe('"say" """hi"""');
+  });
+  it('preserves quoted phrases', () => {
+    expect(sanitizeQuery('say "hi there" now')).toBe('"say" "hi there" "now"');
+  });
+  it('kills FTS5 operators and survives garbage', () => {
+    expect(sanitizeQuery("don't NEAR(x) c++ *")).toBe('"don" "t" "NEAR" "x" "c"');
+    expect(sanitizeQuery('foo "unbalanced')).toBe('"foo" "unbalanced"');
+    expect(() => sanitizeQuery('*** :^ ()')).toThrow(/empty query/);
   });
 });

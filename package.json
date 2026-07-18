@@ -24,6 +24,6 @@
   "scripts": {
     "build": "turbo run build",
     "test": "turbo run test",
-    "release": "bumpp package.json packages/*/package.json .claude-plugin/plugin.json --all --no-push --execute \"pnpm build && pnpm test\" && pnpm -r publish"
+    "release": "bumpp package.json packages/*/package.json .claude-plugin/plugin.json --all --no-push --execute \"turbo run build test\" && pnpm -r publish"
   }
 }

@@ -10,7 +10,7 @@ One command does everything:
 
 1. **bumpp** prompts for the new version and writes it to the root `package.json`,
    every `packages/*/package.json` and `.claude-plugin/plugin.json`
-2. runs `pnpm build && pnpm test` (rebuilt `dist/` is tracked and lands in the commit)
+2. runs `turbo run build test` (rebuilt `dist/` is tracked and lands in the commit)
 3. commits everything (`--all`) and tags `vX.Y.Z` — no push
 4. `pnpm -r publish` publishes the non-private packages
    (`@kddkit/core`, `@kddkit/cli`, `@kddkit/ui`; `@kddkit/mcp` is private, ships inside the plugin)

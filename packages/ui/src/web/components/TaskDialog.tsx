@@ -10,8 +10,8 @@ import {
   Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
+import { MarkdownEditor } from './MarkdownEditor';
 import {
   PRIORITIES, STATUSES, addComment, blockTask, editTask, getTask, moveTask, unblockTask,
   type EventRow, type Priority, type Status, type Task, type TaskDetail, type Track,
@@ -121,16 +121,14 @@ export function TaskDialog({ id, version, tracks, onClose, onChanged }: {
                     <Prose>{c.body}</Prose>
                   </div>
                 ))}
-                <div className="rounded-md border focus-within:ring-1 focus-within:ring-ring">
-                  <Textarea
-                    rows={2}
+                <div className="overflow-hidden rounded-md border focus-within:ring-1 focus-within:ring-ring">
+                  <MarkdownEditor
                     value={comment}
-                    onChange={(e) => setComment(e.target.value)}
+                    onChange={setComment}
+                    onEnterSubmit={submitComment}
                     placeholder="Comment... (Enter to send, Shift+Enter newline)"
-                    className="min-h-9 resize-none border-0 shadow-none focus-visible:ring-0 dark:bg-transparent"
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submitComment(); }
-                    }}
+                    minHeight="40px"
+                    maxHeight="192px"
                   />
                   <div className="flex justify-end p-1.5 pt-0">
                     <Button size="sm" onClick={submitComment}><Send /> Send</Button>
@@ -317,9 +315,10 @@ function EditForm({ task, onSaved, onCancel }: {
   return (
     <div className="flex flex-col gap-2">
       <Input value={title} onChange={(e) => setTitle(e.target.value)} />
-      <Textarea
-        rows={8} value={body} placeholder="markdown body"
-        onChange={(e) => setBody(e.target.value)}
+      <MarkdownEditor
+        value={body} placeholder="markdown body" minHeight="192px" maxHeight="384px" autoFocus
+        onChange={setBody}
+        className="overflow-hidden rounded-md border focus-within:ring-1 focus-within:ring-ring"
       />
       <div className="flex gap-2">
         <Button size="sm" onClick={save}>Save</Button>

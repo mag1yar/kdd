@@ -101,6 +101,9 @@ importers:
       hono:
         specifier: ^4.9.0
         version: 4.12.30
+      overtype:
+        specifier: ^2.4.0
+        version: 2.4.0
     devDependencies:
       '@dnd-kit/core':
         specifier: ^6.3.1
@@ -1452,6 +1455,9 @@ packages:
   magic-string@0.30.21:
     resolution: {integrity: sha512-vd2F4YUyEXKGcLHoq+TEyCjxueSeHnFxyyjNp80yg0XV4vUhnDer/lvvlqM/arB5bXQN5K2/3oinyCRyx8T2CQ==}
 
+  markdown-actions@1.1.2:
+    resolution: {integrity: sha512-U7rmgTvUP3neh3XaVblikslRWWhfpzF2SiI1A6z3az7IpYuAiVvdqtZrFCArV22TSj2Ht+r0ResohlsJ8/ntbw==}
+
   math-intrinsics@1.1.0:
     resolution: {integrity: sha512-/IXtbwEk5HTPyEwyKX6hGkYXxM9nbj64B+ilVJnC/R6B0pH5G4V3b0pVbL7DBj4tkhBAppbQUlf6F6Xl9LHu1g==}
     engines: {node: '>= 0.4'}
@@ -1612,6 +1618,9 @@ packages:
 
   once@1.4.0:
     resolution: {integrity: sha512-lNaJgI+2Q5URQBkccEKHTQOPaXdUxnZZElQTZY0MFUAuaEqe1E+Nyvgdz/aIyNi6Z9MzO5dv1H8n58/GELp3+w==}
+
+  overtype@2.4.0:
+    resolution: {integrity: sha512-V5HJcdwyN/Lye1vvU0d47y1VaEqSGsWRdCa3ZCZB/DZHdR840i1z0oBGYAmbLe/I2H2cxLx9Bv3tuVl4dTgUpA==}
 
   package-manager-detector@1.7.0:
     resolution: {integrity: sha512-xg1eHpwYL/D/HEdWw2goFZP6vV0FH7W+PZ5rFkGjdIDLtxq7EkzBUeT3m+lndYCt8wKbmofUu1MUdMCXkCk9ZQ==}
@@ -3191,6 +3200,8 @@ snapshots:
     dependencies:
       '@jridgewell/sourcemap-codec': 1.5.5
 
+  markdown-actions@1.1.2: {}
+
   math-intrinsics@1.1.0: {}
 
   mdast-util-from-markdown@2.0.3:
@@ -3469,6 +3480,11 @@ snapshots:
   once@1.4.0:
     dependencies:
       wrappy: 1.0.2
+
+  overtype@2.4.0:
+    dependencies:
+      '@floating-ui/dom': 1.8.0
+      markdown-actions: 1.1.2
 
   package-manager-detector@1.7.0: {}
 

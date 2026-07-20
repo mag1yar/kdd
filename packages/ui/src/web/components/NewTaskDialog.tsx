@@ -6,8 +6,8 @@ import { Input } from '@/components/ui/input';
 import {
   Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
-import { Textarea } from '@/components/ui/textarea';
 import { PRIORITIES, createTask, type Priority, type Track } from '../api';
+import { MarkdownEditor } from './MarkdownEditor';
 
 export function NewTaskDialog({ open, tracks, defaultTrack, onClose, onCreated }: {
   open: boolean; tracks: Track[]; defaultTrack: number | null;
@@ -36,9 +36,10 @@ export function NewTaskDialog({ open, tracks, defaultTrack, onClose, onCreated }
         <DialogHeader><DialogTitle>New task</DialogTitle></DialogHeader>
         <div className="flex flex-col gap-2">
           <Input value={title} placeholder="Title" onChange={(e) => setTitle(e.target.value)} />
-          <Textarea
-            rows={6} value={body} placeholder="markdown body (optional)"
-            onChange={(e) => setBody(e.target.value)}
+          <MarkdownEditor
+            value={body} placeholder="markdown body (optional)" minHeight="144px" maxHeight="320px"
+            onChange={setBody}
+            className="overflow-hidden rounded-md border focus-within:ring-1 focus-within:ring-ring"
           />
           <div className="flex gap-2">
             <Select value={priority} onValueChange={(v) => setPriority(v as Priority)}>

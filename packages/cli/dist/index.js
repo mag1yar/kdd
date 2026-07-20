@@ -6,6 +6,7 @@ import { readFileSync } from "fs";
 import { basename, dirname } from "path";
 import {
   KddError as KddError2,
+  addCriterion,
   addDecision,
   addTask,
   archiveTask,
@@ -18,14 +19,17 @@ import {
   editTrack,
   exportBoard,
   linkTasks,
+  listCriteria,
   listProjects,
   listTracks,
   moveTask,
   openDb as openDb2,
   rebuild,
   recall,
+  removeCriterion,
   resolveDbPath as resolveDbPath2,
   resolveDecisionsDir,
+  setCriterionChecked,
   statusDigest,
   taskDetail,
   taskDetailCapped,
@@ -97,6 +101,9 @@ function renderShow(d) {
     `status: ${t.status}${t.blocked ? ` (BLOCKED: ${t.block_reason})` : ""}  priority: ${t.priority}${t.area ? `  area: ${t.area}` : ""}${t.archived_at ? "  ARCHIVED" : ""}`
   ];
   if (t.body) lines.push("", t.body);
+  if (d.criteria.length) {
+    lines.push("", "criteria:", renderCriteria(d.criteria));
+  }
   if (d.links.length) {
     lines.push("", "links:");
     for (const l of d.links) lines.push(`  ${l.kind} #${l.id} ${cap(l.title, CAPS.titleChars)}`);
@@ -115,6 +122,10 @@ function renderShow(d) {
     lines.push(`  ${renderAge(e.created_at)} ago ${e.actor_type} ${e.action}${e.detail ? ` ${e.detail}` : ""}`);
   }
   return lines.join("\n");
+}
+function renderCriteria(cs) {
+  if (cs.length === 0) return "no criteria";
+  return cs.map((c) => `  [${c.checked_at ? "x" : " "}] ${c.id}. ${c.text}`).join("\n");
 }
 function renderRecall(hits) {
   if (hits.length === 0) return "no results";
@@ -177,7 +188,8 @@ function run(json, fn) {
     fail(e instanceof KddError2 ? e.message : String(e), json);
   }
 }
-program.command("add").argument("<title>").option("--body <md>", 'markdown body, or "-" for stdin').option("--body-file <path>").option("--priority <p>", "low|medium|high|urgent").option("--area <area>").option("--track <id>", "track id").option("--json", "machine-readable output").action((title, o) => run(o.json, () => {
+var collect = (v, acc) => [...acc, v];
+program.command("add").argument("<title>").option("--body <md>", 'markdown body, or "-" for stdin').option("--body-file <path>").option("--priority <p>", "low|medium|high|urgent").option("--area <area>").option("--track <id>", "track id").option("--criterion <text>", "acceptance criterion (repeatable)", collect, []).option("--json", "machine-readable output").action((title, o) => run(o.json, () => {
   const t = withDb((db) => addTask(
     db,
     {
@@ -185,7 +197,8 @@ program.command("add").argument("<title>").option("--body <md>", 'markdown body,
       body: readBody(o),
       priority: o.priority,
       area: o.area,
-      track_id: o.track ? parseId(o.track) : void 0
+      track_id: o.track ? parseId(o.track) : void 0,
+      criteria: o.criterion.length ? o.criterion : void 0
     },
     getActor()
   ));
@@ -307,6 +320,27 @@ async function uiStart(port) {
   });
   console.log(`kdd ui: ${url}`);
 }
+var criteria = program.command("criteria").description("acceptance criteria on tasks");
+criteria.command("add").argument("<taskId>").argument("<text>").option("--json").action((taskId, text, o) => run(o.json, () => {
+  const c = withDb((db) => addCriterion(db, parseId(taskId), text, getActor()));
+  out(o.json, c, () => `#${c.task_id} criterion ${c.id} added`);
+}));
+criteria.command("check").argument("<taskId>").argument("<id>").option("--json").action((taskId, id, o) => run(o.json, () => {
+  const c = withDb((db) => setCriterionChecked(db, parseId(taskId), parseId(id), true, getActor()));
+  out(o.json, c, () => `#${c.task_id} criterion ${c.id} checked`);
+}));
+criteria.command("uncheck").argument("<taskId>").argument("<id>").option("--json").action((taskId, id, o) => run(o.json, () => {
+  const c = withDb((db) => setCriterionChecked(db, parseId(taskId), parseId(id), false, getActor()));
+  out(o.json, c, () => `#${c.task_id} criterion ${c.id} unchecked`);
+}));
+criteria.command("rm").argument("<taskId>").argument("<id>").option("--json").action((taskId, id, o) => run(o.json, () => {
+  withDb((db) => removeCriterion(db, parseId(taskId), parseId(id), getActor()));
+  out(o.json, { ok: true }, () => `#${parseId(taskId)} criterion ${parseId(id)} removed`);
+}));
+criteria.command("ls").argument("<taskId>").option("--json").action((taskId, o) => run(o.json, () => {
+  const cs = withDb((db) => listCriteria(db, parseId(taskId)));
+  out(o.json, cs, () => renderCriteria(cs));
+}));
 var track = program.command("track").description("manage tracks (task groups)");
 track.command("add").argument("<name>").option("--description <t>", '"use when\u2026" routing hint for the agent').option("--json").action((name, o) => run(o.json, () => {
   const t = withDb((db) => createTrack(db, { name, description: o.description }));

@@ -3,14 +3,17 @@ import { Command } from 'commander';
 import { readFileSync } from 'node:fs';
 import { basename, dirname } from 'node:path';
 import {
-  KddError, addDecision, addTask, archiveTask, blockTask, boardData, commentTask,
-  createTrack, deleteTrack, editTask, editTrack, exportBoard, linkTasks, listProjects, listTracks,
-  moveTask, openDb, rebuild, recall, resolveDbPath, resolveDecisionsDir, statusDigest,
+  KddError, addCriterion, addDecision, addTask, archiveTask, blockTask, boardData, commentTask,
+  createTrack, deleteTrack, editTask, editTrack, exportBoard, linkTasks, listCriteria,
+  listProjects, listTracks, moveTask, openDb, rebuild, recall, removeCriterion, resolveDbPath,
+  resolveDecisionsDir, setCriterionChecked, statusDigest,
   taskDetail, taskDetailCapped, unarchiveTask, unblockTask, type Status,
 } from '@kddkit/core';
 import { projectPool, startUi } from '@kddkit/ui';
 import { fail, getActor, parseId, withDb } from './context.js';
-import { renderBoard, renderRecall, renderShow, renderStatus, renderTracks } from './render.js';
+import {
+  renderBoard, renderCriteria, renderRecall, renderShow, renderStatus, renderTracks,
+} from './render.js';
 
 const program = new Command()
   .name('kdd')
@@ -32,6 +35,8 @@ function run(json: boolean, fn: () => void): void {
   }
 }
 
+const collect = (v: string, acc: string[]): string[] => [...acc, v];
+
 program.command('add')
   .argument('<title>')
   .option('--body <md>', 'markdown body, or "-" for stdin')
@@ -39,11 +44,13 @@ program.command('add')
   .option('--priority <p>', 'low|medium|high|urgent')
   .option('--area <area>')
   .option('--track <id>', 'track id')
+  .option('--criterion <text>', 'acceptance criterion (repeatable)', collect, [])
   .option('--json', 'machine-readable output')
   .action((title, o) => run(o.json, () => {
     const t = withDb((db) => addTask(db,
       { title, body: readBody(o), priority: o.priority, area: o.area,
-        track_id: o.track ? parseId(o.track) : undefined }, getActor()));
+        track_id: o.track ? parseId(o.track) : undefined,
+        criteria: o.criterion.length ? o.criterion : undefined }, getActor()));
     out(o.json, t, () => `#${t.id} created`);
   }));
 
@@ -211,6 +218,50 @@ async function uiStart(port: number): Promise<void> {
   process.on('SIGINT', () => { closeAll(); process.exit(0); });
   console.log(`kdd ui: ${url}`);
 }
+
+const criteria = program.command('criteria').description('acceptance criteria on tasks');
+
+criteria.command('add')
+  .argument('<taskId>').argument('<text>')
+  .option('--json')
+  .action((taskId, text, o) => run(o.json, () => {
+    const c = withDb((db) => addCriterion(db, parseId(taskId), text, getActor()));
+    out(o.json, c, () => `#${c.task_id} criterion ${c.id} added`);
+  }));
+
+criteria.command('check')
+  .argument('<taskId>').argument('<id>')
+  .option('--json')
+  .action((taskId, id, o) => run(o.json, () => {
+    const c = withDb((db) =>
+      setCriterionChecked(db, parseId(taskId), parseId(id), true, getActor()));
+    out(o.json, c, () => `#${c.task_id} criterion ${c.id} checked`);
+  }));
+
+criteria.command('uncheck')
+  .argument('<taskId>').argument('<id>')
+  .option('--json')
+  .action((taskId, id, o) => run(o.json, () => {
+    const c = withDb((db) =>
+      setCriterionChecked(db, parseId(taskId), parseId(id), false, getActor()));
+    out(o.json, c, () => `#${c.task_id} criterion ${c.id} unchecked`);
+  }));
+
+criteria.command('rm')
+  .argument('<taskId>').argument('<id>')
+  .option('--json')
+  .action((taskId, id, o) => run(o.json, () => {
+    withDb((db) => removeCriterion(db, parseId(taskId), parseId(id), getActor()));
+    out(o.json, { ok: true }, () => `#${parseId(taskId)} criterion ${parseId(id)} removed`);
+  }));
+
+criteria.command('ls')
+  .argument('<taskId>')
+  .option('--json')
+  .action((taskId, o) => run(o.json, () => {
+    const cs = withDb((db) => listCriteria(db, parseId(taskId)));
+    out(o.json, cs, () => renderCriteria(cs));
+  }));
 
 const track = program.command('track').description('manage tracks (task groups)');
 

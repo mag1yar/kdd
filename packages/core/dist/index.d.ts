@@ -76,6 +76,14 @@ interface Track {
     status: 'active' | 'done';
     created_at: number;
 }
+interface Criterion {
+    id: number;
+    task_id: number;
+    text: string;
+    checked_at: number | null;
+    position: number;
+    created_at: number;
+}
 interface Comment {
     id: number;
     task_id: number;
@@ -102,6 +110,7 @@ declare function addTask(db: Database.Database, input: {
     priority?: Priority;
     area?: string;
     track_id?: number;
+    criteria?: string[];
 }, actor: Actor): Task;
 declare function editTask(db: Database.Database, id: number, patch: {
     title?: string;
@@ -118,6 +127,11 @@ declare function unblockTask(db: Database.Database, id: number, actor: Actor): T
 declare function linkTasks(db: Database.Database, fromId: number, toId: number, kind: string, actor: Actor): void;
 declare function archiveTask(db: Database.Database, id: number, actor: Actor): Task;
 declare function unarchiveTask(db: Database.Database, id: number, actor: Actor): Task;
+
+declare function listCriteria(db: Database.Database, taskId: number): Criterion[];
+declare function addCriterion(db: Database.Database, taskId: number, text: string, actor: Actor): Criterion;
+declare function setCriterionChecked(db: Database.Database, taskId: number, id: number, checked: boolean, actor: Actor): Criterion;
+declare function removeCriterion(db: Database.Database, taskId: number, id: number, actor: Actor): void;
 
 declare function mustGetTrack(db: Database.Database, id: number): Track;
 declare function createTrack(db: Database.Database, input: {
@@ -191,6 +205,7 @@ declare function boardData(db: Database.Database, f?: {
 }): Record<Status, Task[]>;
 declare function taskDetail(db: Database.Database, id: number): {
     task: Task;
+    criteria: Criterion[];
     comments: Comment[];
     events: EventRow[];
     links: {
@@ -201,6 +216,7 @@ declare function taskDetail(db: Database.Database, id: number): {
 };
 interface TaskDetailCapped {
     task: Task;
+    criteria: Criterion[];
     comments: Comment[];
     comments_total: number;
     events: EventRow[];
@@ -225,4 +241,4 @@ declare function exportBoard(db: Database.Database): {
     events: EventRow[];
 };
 
-export { type Actor, CAPS, type Comment, type DecisionInput, type EventRow, KddError, MIGRATIONS, PRIORITIES, type ParsedDecision, type Priority, type RecallHit, STATUSES, type Status, TRANSITIONS, type Task, type TaskDetailCapped, type Track, addDecision, addTask, appendEvent, archiveTask, authorOf, blockTask, boardData, capText, checkMove, commentTask, contentHash, createTrack, deleteTrack, editTask, editTrack, exportBoard, kddHome, linkTasks, listProjects, listTracks, logError, moveTask, mustGetTask, mustGetTrack, now, openDb, parseDecisionMd, placeTask, rebuild, recall, renderDecisionBody, renderDecisionMd, resolveDbPath, resolveDecisionsDir, sanitizeQuery, slugify, statusDigest, syncIndex, taskDetail, taskDetailCapped, unarchiveTask, unblockTask };
+export { type Actor, CAPS, type Comment, type Criterion, type DecisionInput, type EventRow, KddError, MIGRATIONS, PRIORITIES, type ParsedDecision, type Priority, type RecallHit, STATUSES, type Status, TRANSITIONS, type Task, type TaskDetailCapped, type Track, addCriterion, addDecision, addTask, appendEvent, archiveTask, authorOf, blockTask, boardData, capText, checkMove, commentTask, contentHash, createTrack, deleteTrack, editTask, editTrack, exportBoard, kddHome, linkTasks, listCriteria, listProjects, listTracks, logError, moveTask, mustGetTask, mustGetTrack, now, openDb, parseDecisionMd, placeTask, rebuild, recall, removeCriterion, renderDecisionBody, renderDecisionMd, resolveDbPath, resolveDecisionsDir, sanitizeQuery, setCriterionChecked, slugify, statusDigest, syncIndex, taskDetail, taskDetailCapped, unarchiveTask, unblockTask };

@@ -5,9 +5,9 @@ import type Database from 'better-sqlite3';
 import { serve } from '@hono/node-server';
 import { Hono, type Context } from 'hono';
 import {
-  KddError, addTask, blockTask, boardData, commentTask, createTrack, deleteTrack, editTask,
-  editTrack, kddHome, listProjects, listTracks, moveTask, openDb, placeTask, taskDetail,
-  unblockTask, type Priority,
+  KddError, addCriterion, addTask, blockTask, boardData, commentTask, createTrack, deleteTrack,
+  editTask, editTrack, kddHome, listProjects, listTracks, moveTask, openDb, placeTask,
+  removeCriterion, setCriterionChecked, taskDetail, unblockTask, type Priority,
 } from '@kddkit/core';
 
 const hashOf = (dbPath: string) => basename(dirname(dbPath));
@@ -34,12 +34,14 @@ export function projectPool(defaultHash: string): {
 
 const USER = { type: 'user' } as const;
 
-function taskId(c: Context): number {
-  const raw = c.req.param('id');
+function intParam(c: Context, name: string): number {
+  const raw = c.req.param(name);
   const n = Number(raw);
-  if (!Number.isInteger(n) || n <= 0) throw new KddError(`invalid task id '${raw}'`);
+  if (!Number.isInteger(n) || n <= 0) throw new KddError(`invalid ${name} '${raw}'`);
   return n;
 }
+
+const taskId = (c: Context): number => intParam(c, 'id');
 
 async function jsonBody(c: Context): Promise<Record<string, unknown>> {
   try {
@@ -143,6 +145,22 @@ export function createApp(
   app.post('/api/tasks/:id/comments', async (c) => {
     const b = await jsonBody(c);
     return c.json(commentTask(getDb(c), taskId(c), String(b.body ?? ''), USER));
+  });
+
+  app.post('/api/tasks/:id/criteria', async (c) => {
+    const b = await jsonBody(c);
+    return c.json(addCriterion(getDb(c), taskId(c), String(b.text ?? ''), USER));
+  });
+
+  app.patch('/api/tasks/:id/criteria/:cid', async (c) => {
+    const b = await jsonBody(c);
+    return c.json(setCriterionChecked(
+      getDb(c), taskId(c), intParam(c, 'cid'), Boolean(b.checked), USER));
+  });
+
+  app.delete('/api/tasks/:id/criteria/:cid', (c) => {
+    removeCriterion(getDb(c), taskId(c), intParam(c, 'cid'), USER);
+    return c.json({ ok: true });
   });
 
   return app;

@@ -32,12 +32,18 @@ function checkPriority(p: string): asserts p is Priority {
 
 export function addTask(
   db: Database.Database,
-  input: { title: string; body?: string; priority?: Priority; area?: string; track_id?: number },
+  input: {
+    title: string; body?: string; priority?: Priority; area?: string;
+    track_id?: number; criteria?: string[];
+  },
   actor: Actor,
 ): Task {
   const priority = input.priority ?? 'medium';
   checkPriority(priority);
   if (!input.title.trim()) throw new KddError('title must not be empty');
+  if (input.criteria?.some((c) => !c.trim())) {
+    throw new KddError('criterion text must not be empty');
+  }
   if (input.track_id != null) mustGetTrack(db, input.track_id);
   return db.transaction(() => {
     const ts = now();
@@ -47,6 +53,10 @@ export function addTask(
     ).run(input.title, input.body ?? null, priority, input.area ?? null, input.track_id ?? null,
       nextPosition(db, 'new'), ts, ts);
     const id = Number(r.lastInsertRowid);
+    // criteria при создании — без criterion_added-событий: их покрывает 'created'
+    const ins = db.prepare(
+      `INSERT INTO criteria (task_id, text, position, created_at) VALUES (?, ?, ?, ?)`);
+    (input.criteria ?? []).forEach((text, i) => ins.run(id, text, i, ts));
     appendEvent(db, id, actor, 'created');
     return mustGetTask(db, id);
   })();

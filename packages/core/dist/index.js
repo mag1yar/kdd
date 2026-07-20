@@ -115,6 +115,31 @@ var MIGRATIONS = [
   );
   ALTER TABLE tasks ADD COLUMN track_id INTEGER REFERENCES tracks(id);
   CREATE INDEX idx_tasks_track ON tasks(track_id);
+  `,
+  `
+  CREATE TABLE criteria (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id    INTEGER NOT NULL REFERENCES tasks(id),
+    text       TEXT NOT NULL,
+    checked_at INTEGER,
+    position   INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL
+  );
+  CREATE INDEX idx_criteria_task ON criteria(task_id, position);
+  -- \u043F\u0435\u0440\u0435\u0441\u0431\u043E\u0440\u043A\u0430 events: \u0441\u043D\u044F\u0442 CHECK \u0441 action \u2014 \u0441\u043B\u043E\u0432\u0430\u0440\u044C \u043E\u0442\u043A\u0440\u044B\u0442\u044B\u0439 (criterion_*, \u0434\u0430\u043B\u044C\u0448\u0435 claim/verify)
+  CREATE TABLE events_new (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id    INTEGER REFERENCES tasks(id),
+    actor_type TEXT NOT NULL CHECK (actor_type IN ('user','ai')),
+    actor_id   TEXT,
+    action     TEXT NOT NULL,
+    detail     TEXT,
+    created_at INTEGER NOT NULL
+  );
+  INSERT INTO events_new SELECT * FROM events;
+  DROP TABLE events;
+  ALTER TABLE events_new RENAME TO events;
+  CREATE INDEX idx_events_task ON events(task_id, created_at);
   `
 ];
 function openDb(dbPath, projectPath) {
@@ -301,6 +326,9 @@ function addTask(db, input, actor) {
   const priority = input.priority ?? "medium";
   checkPriority(priority);
   if (!input.title.trim()) throw new KddError("title must not be empty");
+  if (input.criteria?.some((c) => !c.trim())) {
+    throw new KddError("criterion text must not be empty");
+  }
   if (input.track_id != null) mustGetTrack(db, input.track_id);
   return db.transaction(() => {
     const ts = now();
@@ -318,6 +346,10 @@ function addTask(db, input, actor) {
       ts
     );
     const id = Number(r.lastInsertRowid);
+    const ins = db.prepare(
+      `INSERT INTO criteria (task_id, text, position, created_at) VALUES (?, ?, ?, ?)`
+    );
+    (input.criteria ?? []).forEach((text, i) => ins.run(id, text, i, ts));
     appendEvent(db, id, actor, "created");
     return mustGetTask(db, id);
   })();
@@ -435,6 +467,61 @@ function unarchiveTask(db, id, actor) {
     db.prepare(`UPDATE tasks SET archived_at = NULL, updated_at = ? WHERE id = ?`).run(now(), id);
     appendEvent(db, id, actor, "unarchived");
     return mustGetTask(db, id);
+  })();
+}
+
+// src/criteria.ts
+function listCriteria(db, taskId) {
+  return db.prepare(
+    `SELECT * FROM criteria WHERE task_id = ? ORDER BY position, id`
+  ).all(taskId);
+}
+function mustGetCriterion(db, taskId, id) {
+  const c = db.prepare(`SELECT * FROM criteria WHERE id = ? AND task_id = ?`).get(id, taskId);
+  if (!c) throw new KddError(`criterion #${id} not found on task #${taskId}`);
+  return c;
+}
+var touchTask = (db, taskId) => {
+  db.prepare(`UPDATE tasks SET updated_at = ? WHERE id = ?`).run(now(), taskId);
+};
+function addCriterion(db, taskId, text, actor) {
+  if (!text.trim()) throw new KddError("criterion text must not be empty");
+  return db.transaction(() => {
+    mustGetTask(db, taskId);
+    const pos = db.prepare(
+      `SELECT COALESCE(MAX(position), -1) + 1 AS p FROM criteria WHERE task_id = ?`
+    ).get(taskId).p;
+    const r = db.prepare(
+      `INSERT INTO criteria (task_id, text, position, created_at) VALUES (?, ?, ?, ?)`
+    ).run(taskId, text, pos, now());
+    const id = Number(r.lastInsertRowid);
+    appendEvent(db, taskId, actor, "criterion_added", { id, text });
+    touchTask(db, taskId);
+    return mustGetCriterion(db, taskId, id);
+  })();
+}
+function setCriterionChecked(db, taskId, id, checked, actor) {
+  return db.transaction(() => {
+    const c = mustGetCriterion(db, taskId, id);
+    if (c.checked_at !== null === checked) return c;
+    db.prepare(`UPDATE criteria SET checked_at = ? WHERE id = ?`).run(checked ? now() : null, id);
+    appendEvent(
+      db,
+      taskId,
+      actor,
+      checked ? "criterion_checked" : "criterion_unchecked",
+      { id, text: c.text }
+    );
+    touchTask(db, taskId);
+    return mustGetCriterion(db, taskId, id);
+  })();
+}
+function removeCriterion(db, taskId, id, actor) {
+  db.transaction(() => {
+    const c = mustGetCriterion(db, taskId, id);
+    db.prepare(`DELETE FROM criteria WHERE id = ?`).run(id);
+    appendEvent(db, taskId, actor, "criterion_removed", { id, text: c.text });
+    touchTask(db, taskId);
   })();
 }
 
@@ -680,6 +767,7 @@ function boardData(db, f = {}) {
 }
 function taskDetail(db, id) {
   const task = mustGetTask(db, id);
+  const criteria = listCriteria(db, id);
   const comments = db.prepare(
     `SELECT * FROM comments WHERE task_id = ? ORDER BY created_at, id`
   ).all(id);
@@ -691,7 +779,7 @@ function taskDetail(db, id) {
      JOIN tasks t ON t.id = CASE WHEN l.from_id = ? THEN l.to_id ELSE l.from_id END
      WHERE l.from_id = ? OR l.to_id = ?`
   ).all(id, id, id);
-  return { task, comments, events, links };
+  return { task, criteria, comments, events, links };
 }
 function taskDetailCapped(db, id) {
   const d = taskDetail(db, id);
@@ -700,6 +788,8 @@ function taskDetailCapped(db, id) {
       ...d.task,
       body: d.task.body === null ? null : capText(d.task.body, CAPS.bodyChars)
     },
+    // criteria не режем: неполный список приёмки бесполезен
+    criteria: d.criteria,
     comments: d.comments.slice(-CAPS.comments).map((c) => ({ ...c, body: capText(c.body, CAPS.commentChars) })),
     comments_total: d.comments.length,
     events: d.events.slice(-CAPS.events),
@@ -737,6 +827,7 @@ export {
   PRIORITIES,
   STATUSES,
   TRANSITIONS,
+  addCriterion,
   addDecision,
   addTask,
   appendEvent,
@@ -755,6 +846,7 @@ export {
   exportBoard,
   kddHome,
   linkTasks,
+  listCriteria,
   listProjects,
   listTracks,
   logError,
@@ -767,11 +859,13 @@ export {
   placeTask,
   rebuild,
   recall,
+  removeCriterion,
   renderDecisionBody,
   renderDecisionMd,
   resolveDbPath,
   resolveDecisionsDir,
   sanitizeQuery,
+  setCriterionChecked,
   slugify,
   statusDigest,
   syncIndex,

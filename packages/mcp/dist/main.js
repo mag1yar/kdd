@@ -21219,6 +21219,31 @@ var MIGRATIONS = [
   );
   ALTER TABLE tasks ADD COLUMN track_id INTEGER REFERENCES tracks(id);
   CREATE INDEX idx_tasks_track ON tasks(track_id);
+  `,
+  `
+  CREATE TABLE criteria (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id    INTEGER NOT NULL REFERENCES tasks(id),
+    text       TEXT NOT NULL,
+    checked_at INTEGER,
+    position   INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL
+  );
+  CREATE INDEX idx_criteria_task ON criteria(task_id, position);
+  -- \u043F\u0435\u0440\u0435\u0441\u0431\u043E\u0440\u043A\u0430 events: \u0441\u043D\u044F\u0442 CHECK \u0441 action \u2014 \u0441\u043B\u043E\u0432\u0430\u0440\u044C \u043E\u0442\u043A\u0440\u044B\u0442\u044B\u0439 (criterion_*, \u0434\u0430\u043B\u044C\u0448\u0435 claim/verify)
+  CREATE TABLE events_new (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id    INTEGER REFERENCES tasks(id),
+    actor_type TEXT NOT NULL CHECK (actor_type IN ('user','ai')),
+    actor_id   TEXT,
+    action     TEXT NOT NULL,
+    detail     TEXT,
+    created_at INTEGER NOT NULL
+  );
+  INSERT INTO events_new SELECT * FROM events;
+  DROP TABLE events;
+  ALTER TABLE events_new RENAME TO events;
+  CREATE INDEX idx_events_task ON events(task_id, created_at);
   `
 ];
 function openDb(dbPath, projectPath) {
@@ -21389,6 +21414,11 @@ function moveTask(db, id, to, actor, reason) {
     return mustGetTask(db, id);
   })();
 }
+function listCriteria(db, taskId) {
+  return db.prepare(
+    `SELECT * FROM criteria WHERE task_id = ? ORDER BY position, id`
+  ).all(taskId);
+}
 var normalize = (s) => s.replace(/\r\n/g, "\n").trim();
 function contentHash(title, body) {
   return createHash2("sha256").update(`${normalize(title)}
@@ -21536,6 +21566,7 @@ function boardData(db, f = {}) {
 }
 function taskDetail(db, id) {
   const task = mustGetTask(db, id);
+  const criteria = listCriteria(db, id);
   const comments = db.prepare(
     `SELECT * FROM comments WHERE task_id = ? ORDER BY created_at, id`
   ).all(id);
@@ -21547,7 +21578,7 @@ function taskDetail(db, id) {
      JOIN tasks t ON t.id = CASE WHEN l.from_id = ? THEN l.to_id ELSE l.from_id END
      WHERE l.from_id = ? OR l.to_id = ?`
   ).all(id, id, id);
-  return { task, comments, events, links };
+  return { task, criteria, comments, events, links };
 }
 function taskDetailCapped(db, id) {
   const d = taskDetail(db, id);
@@ -21556,6 +21587,8 @@ function taskDetailCapped(db, id) {
       ...d.task,
       body: d.task.body === null ? null : capText(d.task.body, CAPS.bodyChars)
     },
+    // criteria не режем: неполный список приёмки бесполезен
+    criteria: d.criteria,
     comments: d.comments.slice(-CAPS.comments).map((c) => ({ ...c, body: capText(c.body, CAPS.commentChars) })),
     comments_total: d.comments.length,
     events: d.events.slice(-CAPS.events),

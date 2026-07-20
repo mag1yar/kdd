@@ -10,6 +10,10 @@ export interface Track {
   id: number; name: string; description: string | null;
   status: 'active' | 'done'; created_at: number;
 }
+export interface Criterion {
+  id: number; task_id: number; text: string;
+  checked_at: number | null; position: number; created_at: number;
+}
 export interface Comment {
   id: number; task_id: number; author: string; body: string; created_at: number;
 }

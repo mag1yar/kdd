@@ -84,6 +84,31 @@ export const MIGRATIONS: string[] = [
   ALTER TABLE tasks ADD COLUMN track_id INTEGER REFERENCES tracks(id);
   CREATE INDEX idx_tasks_track ON tasks(track_id);
   `,
+  `
+  CREATE TABLE criteria (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id    INTEGER NOT NULL REFERENCES tasks(id),
+    text       TEXT NOT NULL,
+    checked_at INTEGER,
+    position   INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL
+  );
+  CREATE INDEX idx_criteria_task ON criteria(task_id, position);
+  -- пересборка events: снят CHECK с action — словарь открытый (criterion_*, дальше claim/verify)
+  CREATE TABLE events_new (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id    INTEGER REFERENCES tasks(id),
+    actor_type TEXT NOT NULL CHECK (actor_type IN ('user','ai')),
+    actor_id   TEXT,
+    action     TEXT NOT NULL,
+    detail     TEXT,
+    created_at INTEGER NOT NULL
+  );
+  INSERT INTO events_new SELECT * FROM events;
+  DROP TABLE events;
+  ALTER TABLE events_new RENAME TO events;
+  CREATE INDEX idx_events_task ON events(task_id, created_at);
+  `,
 ];
 
 export function openDb(dbPath: string, projectPath?: string): Database.Database {

@@ -14,6 +14,9 @@ export interface Track {
   id: number; name: string; description: string | null;
   status: 'active' | 'done'; open_tasks: number;
 }
+export interface Criterion {
+  id: number; task_id: number; text: string; checked_at: number | null; position: number;
+}
 export interface Comment { id: number; author: string; body: string; created_at: number; }
 export interface EventRow {
   id: number; actor_type: 'user' | 'ai'; actor_id: string | null;
@@ -22,7 +25,7 @@ export interface EventRow {
 export interface Link { id: number; title: string; kind: string; }
 export type Board = Record<Status, Task[]>;
 export interface TaskDetail {
-  task: Task; comments: Comment[]; events: EventRow[]; links: Link[];
+  task: Task; criteria: Criterion[]; comments: Comment[]; events: EventRow[]; links: Link[];
 }
 
 // ?project=<hash> из URL пробрасывается во все запросы — сервер отдаёт нужную базу.
@@ -64,6 +67,13 @@ export const moveTask = (id: number, to: Status, order?: number[]) =>
   req<Task>(`/api/tasks/${id}/move`, { method: 'POST', body: JSON.stringify({ to, order }) });
 export const addComment = (id: number, body: string) =>
   req<Comment>(`/api/tasks/${id}/comments`, { method: 'POST', body: JSON.stringify({ body }) });
+export const addCriterion = (id: number, text: string) =>
+  req<Criterion>(`/api/tasks/${id}/criteria`, { method: 'POST', body: JSON.stringify({ text }) });
+export const setCriterionChecked = (id: number, cid: number, checked: boolean) =>
+  req<Criterion>(`/api/tasks/${id}/criteria/${cid}`,
+    { method: 'PATCH', body: JSON.stringify({ checked }) });
+export const removeCriterion = (id: number, cid: number) =>
+  req<{ ok: true }>(`/api/tasks/${id}/criteria/${cid}`, { method: 'DELETE' });
 export const blockTask = (id: number, reason: string) =>
   req<Task>(`/api/tasks/${id}/block`, { method: 'POST', body: JSON.stringify({ reason }) });
 export const unblockTask = (id: number) =>

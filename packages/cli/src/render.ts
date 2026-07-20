@@ -1,6 +1,7 @@
 import {
   CAPS, STATUSES, capText as cap, now,
-  type EventRow, type RecallHit, type Status, type Task, type TaskDetailCapped, type Track,
+  type Criterion, type EventRow, type RecallHit, type Status, type Task,
+  type TaskDetailCapped, type Track,
 } from '@kddkit/core';
 
 export function renderAge(epoch: number): string {
@@ -39,6 +40,9 @@ export function renderShow(d: TaskDetailCapped): string {
       `${t.archived_at ? '  ARCHIVED' : ''}`,
   ];
   if (t.body) lines.push('', t.body);
+  if (d.criteria.length) {
+    lines.push('', 'criteria:', renderCriteria(d.criteria));
+  }
   if (d.links.length) {
     lines.push('', 'links:');
     for (const l of d.links) lines.push(`  ${l.kind} #${l.id} ${cap(l.title, CAPS.titleChars)}`);
@@ -58,6 +62,12 @@ export function renderShow(d: TaskDetailCapped): string {
       `${e.detail ? ` ${e.detail}` : ''}`);
   }
   return lines.join('\n');
+}
+
+export function renderCriteria(cs: Criterion[]): string {
+  if (cs.length === 0) return 'no criteria';
+  // id в строке — чтобы агент мог check/uncheck без --json
+  return cs.map((c) => `  [${c.checked_at ? 'x' : ' '}] ${c.id}. ${c.text}`).join('\n');
 }
 
 export function renderRecall(hits: RecallHit[]): string {

@@ -1,9 +1,10 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { Ban, Link2, Pencil, Send } from 'lucide-react';
+import { Ban, Link2, Pencil, Send, X } from 'lucide-react';
 import Markdown from 'react-markdown';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import {
@@ -13,8 +14,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { cn } from '@/lib/utils';
 import { MarkdownEditor } from './MarkdownEditor';
 import {
-  PRIORITIES, STATUSES, addComment, blockTask, editTask, getTask, moveTask, unblockTask,
-  type EventRow, type Priority, type Status, type Task, type TaskDetail, type Track,
+  PRIORITIES, STATUSES, addComment, addCriterion, blockTask, editTask, getTask, moveTask,
+  removeCriterion, setCriterionChecked, unblockTask,
+  type Criterion, type EventRow, type Priority, type Status, type Task, type TaskDetail,
+  type Track,
 } from '../api';
 
 const STATUS_LABEL: Record<Status, string> = {
@@ -31,10 +34,15 @@ function fmtEvent(e: EventRow): string {
     case 'unblocked': return 'unblocked';
     case 'linked': return `linked #${d?.to} (${d?.kind})`;
     case 'commented': return 'commented';
+    case 'criterion_added': return `added criterion: ${d?.text}`;
+    case 'criterion_checked': return `checked: ${d?.text}`;
+    case 'criterion_unchecked': return `unchecked: ${d?.text}`;
+    case 'criterion_removed': return `removed criterion: ${d?.text}`;
     default: return e.action;
   }
 }
-const actorLabel = (e: EventRow) => (e.actor_type === 'ai' ? `ai:${e.actor_id}` : 'user');
+const actorLabel = (e: EventRow) =>
+  (e.actor_type === 'ai' ? (e.actor_id ? `ai:${e.actor_id}` : 'ai') : 'user');
 
 export function TaskDialog({ id, version, tracks, onClose, onChanged }: {
   id: number | null; version: number; tracks: Track[];
@@ -52,7 +60,7 @@ export function TaskDialog({ id, version, tracks, onClose, onChanged }: {
   }, [id, version]); // version: изменения из CLI подтягиваются в открытый диалог
 
   if (id === null || !detail) return null;
-  const { task, comments, events, links } = detail;
+  const { task, criteria, comments, events, links } = detail;
   const after = () => { onChanged(); return reload(); };
 
   const submitComment = () => {
@@ -96,6 +104,8 @@ export function TaskDialog({ id, version, tracks, onClose, onChanged }: {
                 </div>
               </div>
             )}
+
+            <CriteriaList taskId={task.id} criteria={criteria} onChanged={after} />
 
             <Tabs
               value={tab}
@@ -231,6 +241,49 @@ export function TaskDialog({ id, version, tracks, onClose, onChanged }: {
         </div>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function CriteriaList({ taskId, criteria, onChanged }: {
+  taskId: number; criteria: Criterion[]; onChanged: () => void;
+}) {
+  const [text, setText] = useState('');
+  const err = (e: Error) => toast.error(e.message);
+  const done = criteria.filter((c) => c.checked_at !== null).length;
+  const add = () => {
+    if (!text.trim()) return;
+    addCriterion(taskId, text).then(() => { setText(''); onChanged(); }).catch(err);
+  };
+  return (
+    <div className="flex flex-col gap-1.5">
+      <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+        Criteria{criteria.length > 0 && ` ${done}/${criteria.length}`}
+      </span>
+      {criteria.map((c) => (
+        <div key={c.id} className="group flex items-center gap-2 text-sm">
+          <Checkbox
+            checked={c.checked_at !== null}
+            onCheckedChange={(v) =>
+              setCriterionChecked(taskId, c.id, v === true).then(onChanged).catch(err)}
+          />
+          <span className={cn('flex-1', c.checked_at !== null && 'text-muted-foreground line-through')}>
+            {c.text}
+          </span>
+          <button
+            type="button" aria-label="Remove criterion"
+            className="invisible text-muted-foreground hover:text-destructive group-hover:visible"
+            onClick={() => removeCriterion(taskId, c.id).then(onChanged).catch(err)}
+          >
+            <X className="size-3.5" />
+          </button>
+        </div>
+      ))}
+      <Input
+        value={text} placeholder="Add criterion..." className="h-8"
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => { if (e.key === 'Enter') add(); }}
+      />
+    </div>
   );
 }
 

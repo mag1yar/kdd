@@ -1,8 +1,9 @@
 import type Database from 'better-sqlite3';
 import { CAPS, capText } from './caps.js';
 import { STATUSES, type Status } from './state.js';
-import type { Comment, EventRow, Task } from './types.js';
+import type { Comment, Criterion, EventRow, Task } from './types.js';
 import { mustGetTask } from './ops.js';
+import { listCriteria } from './criteria.js';
 
 const PRIORITY_ORDER =
   `CASE priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END`;
@@ -26,10 +27,11 @@ export function boardData(
 }
 
 export function taskDetail(db: Database.Database, id: number): {
-  task: Task; comments: Comment[]; events: EventRow[];
+  task: Task; criteria: Criterion[]; comments: Comment[]; events: EventRow[];
   links: { id: number; title: string; kind: string }[];
 } {
   const task = mustGetTask(db, id);
+  const criteria = listCriteria(db, id);
   const comments = db.prepare(
     `SELECT * FROM comments WHERE task_id = ? ORDER BY created_at, id`).all(id) as Comment[];
   const events = db.prepare(
@@ -39,11 +41,12 @@ export function taskDetail(db: Database.Database, id: number): {
      JOIN tasks t ON t.id = CASE WHEN l.from_id = ? THEN l.to_id ELSE l.from_id END
      WHERE l.from_id = ? OR l.to_id = ?`,
   ).all(id, id, id) as { id: number; title: string; kind: string }[];
-  return { task, comments, events, links };
+  return { task, criteria, comments, events, links };
 }
 
 export interface TaskDetailCapped {
   task: Task;
+  criteria: Criterion[];
   comments: Comment[];
   comments_total: number;
   events: EventRow[];
@@ -59,6 +62,8 @@ export function taskDetailCapped(db: Database.Database, id: number): TaskDetailC
       ...d.task,
       body: d.task.body === null ? null : capText(d.task.body, CAPS.bodyChars),
     },
+    // criteria не режем: неполный список приёмки бесполезен
+    criteria: d.criteria,
     comments: d.comments.slice(-CAPS.comments)
       .map((c) => ({ ...c, body: capText(c.body, CAPS.commentChars) })),
     comments_total: d.comments.length,

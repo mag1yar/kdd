@@ -10,12 +10,16 @@ export const authorOf = (a: Actor): string => (a.type === 'ai' ? `ai:${a.id ?? '
 export function appendEvent(
   db: Database.Database, taskId: number | null, actor: Actor,
   action: string, detail?: object,
-): void {
-  db.prepare(
-    `INSERT INTO events (task_id, actor_type, actor_id, action, detail, created_at)
-     VALUES (?, ?, ?, ?, ?, ?)`,
+  opts?: { parent_id?: number; type?: string; level?: 'info' | 'warn' | 'error' },
+): number {
+  const r = db.prepare(
+    `INSERT INTO events (task_id, actor_type, actor_id, action, detail, created_at,
+                         parent_id, type, level)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(taskId, actor.type, actor.id ?? null, action,
-    detail ? JSON.stringify(detail) : null, now());
+    detail ? JSON.stringify(detail) : null, now(),
+    opts?.parent_id ?? null, opts?.type ?? null, opts?.level ?? 'info');
+  return Number(r.lastInsertRowid);
 }
 
 export function mustGetTask(db: Database.Database, id: number): Task {

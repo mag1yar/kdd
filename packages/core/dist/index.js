@@ -140,6 +140,12 @@ var MIGRATIONS = [
   DROP TABLE events;
   ALTER TABLE events_new RENAME TO events;
   CREATE INDEX idx_events_task ON events(task_id, created_at);
+  `,
+  `
+  -- \u0438\u0435\u0440\u0430\u0440\u0445\u0438\u044F \u0438 \u0442\u0438\u043F\u0438\u0437\u0430\u0446\u0438\u044F \u0441\u043E\u0431\u044B\u0442\u0438\u0439 (observability \u0430\u0433\u0435\u043D\u0442\u043E\u0432); \u0441\u0442\u0430\u0440\u044B\u0435 \u0441\u0442\u0440\u043E\u043A\u0438: NULL/NULL/'info'
+  ALTER TABLE events ADD COLUMN parent_id INTEGER REFERENCES events(id);
+  ALTER TABLE events ADD COLUMN type TEXT;
+  ALTER TABLE events ADD COLUMN level TEXT NOT NULL DEFAULT 'info';
   `
 ];
 function openDb(dbPath, projectPath) {
@@ -299,18 +305,23 @@ function listTracks(db, opts = {}) {
 
 // src/ops.ts
 var authorOf = (a) => a.type === "ai" ? `ai:${a.id ?? "?"}` : "user";
-function appendEvent(db, taskId, actor, action, detail) {
-  db.prepare(
-    `INSERT INTO events (task_id, actor_type, actor_id, action, detail, created_at)
-     VALUES (?, ?, ?, ?, ?, ?)`
+function appendEvent(db, taskId, actor, action, detail, opts) {
+  const r = db.prepare(
+    `INSERT INTO events (task_id, actor_type, actor_id, action, detail, created_at,
+                         parent_id, type, level)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     taskId,
     actor.type,
     actor.id ?? null,
     action,
     detail ? JSON.stringify(detail) : null,
-    now()
+    now(),
+    opts?.parent_id ?? null,
+    opts?.type ?? null,
+    opts?.level ?? "info"
   );
+  return Number(r.lastInsertRowid);
 }
 function mustGetTask(db, id) {
   const t = db.prepare(`SELECT * FROM tasks WHERE id = ?`).get(id);

@@ -109,6 +109,12 @@ export const MIGRATIONS: string[] = [
   ALTER TABLE events_new RENAME TO events;
   CREATE INDEX idx_events_task ON events(task_id, created_at);
   `,
+  `
+  -- иерархия и типизация событий (observability агентов); старые строки: NULL/NULL/'info'
+  ALTER TABLE events ADD COLUMN parent_id INTEGER REFERENCES events(id);
+  ALTER TABLE events ADD COLUMN type TEXT;
+  ALTER TABLE events ADD COLUMN level TEXT NOT NULL DEFAULT 'info';
+  `,
 ];
 
 export function openDb(dbPath: string, projectPath?: string): Database.Database {

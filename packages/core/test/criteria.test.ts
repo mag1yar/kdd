@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import type Database from 'better-sqlite3';
 import { openDb } from '../src/db.js';
-import { addTask } from '../src/ops.js';
+import { addTask, appendEvent } from '../src/ops.js';
 import {
   addCriterion, listCriteria, removeCriterion, setCriterionChecked,
 } from '../src/criteria.js';
@@ -59,6 +59,21 @@ describe('criteria', () => {
     addTask(db, { title: 't', criteria: ['a', 'b', 'c'] }, user);
     expect(taskDetail(db, 1).criteria).toHaveLength(3);
     expect(taskDetailCapped(db, 1).criteria).toHaveLength(3);
+  });
+
+  it('appendEvent stores parent_id/type/level, defaults NULL/NULL/info', () => {
+    addTask(db, { title: 't' }, user);
+    const parentId = appendEvent(db, 1, ai, 'claim', undefined,
+      { type: 'claim', level: 'warn' });
+    appendEvent(db, 1, ai, 'verify', { exit_code: 0 }, { parent_id: parentId });
+    const rows = db.prepare(
+      `SELECT parent_id, type, level FROM events WHERE task_id = 1 ORDER BY id`,
+    ).all();
+    expect(rows).toEqual([
+      { parent_id: null, type: null, level: 'info' },      // created (без opts)
+      { parent_id: null, type: 'claim', level: 'warn' },
+      { parent_id: parentId, type: null, level: 'info' },
+    ]);
   });
 
   it('migration keeps legacy events and allows open action vocabulary', () => {

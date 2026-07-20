@@ -99,10 +99,17 @@ interface EventRow {
     action: string;
     detail: string | null;
     created_at: number;
+    parent_id: number | null;
+    type: string | null;
+    level: 'info' | 'warn' | 'error';
 }
 
 declare const authorOf: (a: Actor) => string;
-declare function appendEvent(db: Database.Database, taskId: number | null, actor: Actor, action: string, detail?: object): void;
+declare function appendEvent(db: Database.Database, taskId: number | null, actor: Actor, action: string, detail?: object, opts?: {
+    parent_id?: number;
+    type?: string;
+    level?: 'info' | 'warn' | 'error';
+}): number;
 declare function mustGetTask(db: Database.Database, id: number): Task;
 declare function addTask(db: Database.Database, input: {
     title: string;

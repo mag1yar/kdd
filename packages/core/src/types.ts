@@ -20,4 +20,5 @@ export interface Comment {
 export interface EventRow {
   id: number; task_id: number | null; actor_type: 'user' | 'ai';
   actor_id: string | null; action: string; detail: string | null; created_at: number;
+  parent_id: number | null; type: string | null; level: 'info' | 'warn' | 'error';
 }

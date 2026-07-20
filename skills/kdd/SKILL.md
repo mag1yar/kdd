@@ -49,6 +49,10 @@ Writes — prefix `KDD_ACTOR=ai`, and only on an explicit user request (see Iron
 
 ```
 kdd block <id> "<reason>"   /   kdd unblock <id>
+kdd criteria ls <taskId>
+kdd criteria add <taskId> "<text>"
+kdd criteria check <taskId> <id>   /   kdd criteria uncheck <taskId> <id>
+kdd criteria rm <taskId> <id>
 kdd decide "<title>" --decision "…" --rationale "…"   # human-gated, see Decisions
 kdd archive <id>            # Iron Law: normally the human
 kdd link <from> <to> [--kind relates_to]
@@ -110,6 +114,27 @@ CLI equivalents.
   Valid statuses: backlog, new, in_progress, review, done. A move that skips the
   normal flow needs `move.reason` explaining that the user asked for it.
 - Edit a task's fields with `update_task { id, edit: { ... } }`.
+
+### Acceptance criteria
+
+A task's `criteria` list (visible in `get_task`) is the acceptance contract: the
+task is done when every criterion holds. Working a task, you own the checkboxes:
+
+- **Check each criterion as you complete it** — after verifying it actually
+  holds (test ran, behavior observed), not when you merely wrote the code:
+
+  ```
+  KDD_ACTOR=ai kdd criteria check <taskId> <id>
+  ```
+
+  (`kdd criteria ls <taskId>` shows ids; criteria writes are CLI-only, so the
+  `KDD_ACTOR=ai` prefix is mandatory here.)
+- **Move to review only when every criterion is checked.** An unchecked
+  criterion means the task is not ready — finish it or say why you cannot.
+- Never check a criterion you did not verify. If one is impossible or obsolete,
+  leave it unchecked and comment why — removing criteria is the human's call.
+- A criterion the human **unchecks** during review is rework: the task comes
+  back to `in_progress` and that criterion is your work list.
 - `get_task { id }` returns the task with its most recent comments and events;
   `comments_total` / `events_total` show the real counts. When the trail is
   longer than what you received and the history matters, call

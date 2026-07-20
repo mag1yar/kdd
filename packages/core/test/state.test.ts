@@ -41,4 +41,18 @@ describe('checkMove', () => {
     if (!res.ok) expect(res.error).toBe(
       'invalid transition new → done for ai; allowed: backlog, in_progress; pass --reason if user requested a skip');
   });
+
+  it('ai cannot move to review with unchecked criteria', () => {
+    const res = checkMove('in_progress', 'review', { type: 'ai' }, undefined, 2);
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.error).toMatch(/2 unchecked acceptance criteria/);
+    // все отмечены → пропускает
+    expect(checkMove('in_progress', 'review', { type: 'ai' }, undefined, 0).ok).toBe(true);
+    // reason обходит гейт
+    expect(checkMove('in_progress', 'review', { type: 'ai' }, 'user asked', 2).ok).toBe(true);
+    // user не ограничен
+    expect(checkMove('in_progress', 'review', { type: 'user' }, undefined, 2).ok).toBe(true);
+    // гейт только на review — другие переходы не трогает
+    expect(checkMove('new', 'in_progress', { type: 'ai' }, undefined, 2).ok).toBe(true);
+  });
 });

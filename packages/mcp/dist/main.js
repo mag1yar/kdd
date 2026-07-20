@@ -21314,15 +21314,23 @@ var TRANSITIONS = {
   review: ["in_progress", "done"],
   done: ["review"]
 };
-function checkMove(from, to, actor, reason) {
+function checkMove(from, to, actor, reason, openCriteria2 = 0) {
   if (from === to) return { ok: false, error: `task is already in ${to}` };
   if (actor.type === "user") return { ok: true };
-  if (TRANSITIONS[from].includes(to)) return { ok: true };
   if (reason) return { ok: true };
-  return {
-    ok: false,
-    error: `invalid transition ${from} \u2192 ${to} for ai; allowed: ${TRANSITIONS[from].join(", ")}; pass --reason if user requested a skip`
-  };
+  if (!TRANSITIONS[from].includes(to)) {
+    return {
+      ok: false,
+      error: `invalid transition ${from} \u2192 ${to} for ai; allowed: ${TRANSITIONS[from].join(", ")}; pass --reason if user requested a skip`
+    };
+  }
+  if (to === "review" && openCriteria2 > 0) {
+    return {
+      ok: false,
+      error: `cannot move to review: ${openCriteria2} unchecked acceptance criteria; check them (kdd criteria check) or pass --reason if user asked to skip`
+    };
+  }
+  return { ok: true };
 }
 function mustGetTrack(db, id) {
   const t = db.prepare(`SELECT * FROM tracks WHERE id = ?`).get(id);
@@ -21397,6 +21405,11 @@ function checkStatus(s) {
     throw new KddError(`invalid status '${s}'; allowed: ${STATUSES.join(", ")}`);
   }
 }
+function openCriteria(db, taskId) {
+  return db.prepare(
+    `SELECT COUNT(*) AS c FROM criteria WHERE task_id = ? AND checked_at IS NULL`
+  ).get(taskId).c;
+}
 function nextPosition(db, status) {
   return db.prepare(
     `SELECT COALESCE(MAX(position), -1) + 1 AS p
@@ -21407,7 +21420,7 @@ function moveTask(db, id, to, actor, reason) {
   checkStatus(to);
   return db.transaction(() => {
     const t = mustGetTask(db, id);
-    const res = checkMove(t.status, to, actor, reason);
+    const res = checkMove(t.status, to, actor, reason, openCriteria(db, id));
     if (!res.ok) throw new KddError(res.error);
     db.prepare(`UPDATE tasks SET status = ?, position = ?, updated_at = ? WHERE id = ?`).run(to, nextPosition(db, to), now(), id);
     appendEvent(

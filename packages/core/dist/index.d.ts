@@ -47,7 +47,7 @@ type Actor = {
     id?: string;
 };
 declare const TRANSITIONS: Record<Status, Status[]>;
-declare function checkMove(from: Status, to: Status, actor: Actor, reason?: string): {
+declare function checkMove(from: Status, to: Status, actor: Actor, reason?: string, openCriteria?: number): {
     ok: true;
 } | {
     ok: false;

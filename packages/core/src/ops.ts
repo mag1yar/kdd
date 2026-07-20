@@ -107,6 +107,13 @@ function checkStatus(s: string): asserts s is Status {
   }
 }
 
+// Неотмеченные критерии приёмки — гейт ai-перехода в review (see checkMove).
+function openCriteria(db: Database.Database, taskId: number): number {
+  return (db.prepare(
+    `SELECT COUNT(*) AS c FROM criteria WHERE task_id = ? AND checked_at IS NULL`,
+  ).get(taskId) as { c: number }).c;
+}
+
 // Следующая свободная позиция в конце колонки (порядок на доске = position).
 function nextPosition(db: Database.Database, status: Status): number {
   return (db.prepare(
@@ -121,7 +128,7 @@ export function moveTask(
   checkStatus(to);
   return db.transaction(() => {
     const t = mustGetTask(db, id);
-    const res = checkMove(t.status, to, actor, reason);
+    const res = checkMove(t.status, to, actor, reason, openCriteria(db, id));
     if (!res.ok) throw new KddError(res.error);
     db.prepare(`UPDATE tasks SET status = ?, position = ?, updated_at = ? WHERE id = ?`)
       .run(to, nextPosition(db, to), now(), id); // CLI-move дописывает в конец колонки
@@ -145,7 +152,7 @@ export function placeTask(
   return db.transaction(() => {
     const t = mustGetTask(db, id);
     if (t.status !== to) {
-      const res = checkMove(t.status, to, actor);
+      const res = checkMove(t.status, to, actor, undefined, openCriteria(db, id));
       if (!res.ok) throw new KddError(res.error);
       appendEvent(db, id, actor, 'moved', { from: t.status, to });
     }

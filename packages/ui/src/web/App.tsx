@@ -132,7 +132,9 @@ export default function App() {
         <Button size="sm" onClick={() => setCreating(true)}>New task</Button>
       </header>
       <main className="flex-1 overflow-auto">
-        <Board board={board} trackName={trackName} onMove={onMove} onOpen={setOpenId} />
+        {/* бейдж трека на карточке — только в режиме all tracks: внутри трека он шум */}
+        <Board board={board} trackName={track == null ? trackName : new Map()}
+          onMove={onMove} onOpen={setOpenId} />
       </main>
       <TaskDialog
         id={openId} version={version} tracks={tracks}

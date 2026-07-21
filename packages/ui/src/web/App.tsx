@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Toaster, toast } from 'sonner';
 import { Button } from '@/components/ui/button';
-import { Check, Plus, Trash2 } from 'lucide-react';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Check, Plus, Settings, Trash2 } from 'lucide-react';
 import {
   Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
@@ -27,6 +28,7 @@ export default function App() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [tracks, setTracks] = useState<Track[]>([]);
   const [track, setTrack] = useState<number | null>(null); // фильтр доски по track (all=null)
+  const [trackMenu, setTrackMenu] = useState(false); // popover действий над текущим треком
   const current = new URLSearchParams(location.search).get('project') ?? '';
   const version = useVersion();
 
@@ -93,41 +95,69 @@ export default function App() {
               ))}
             </SelectContent>
           </Select>
-          <Select
-            value={track === null ? 'all' : String(track)}
-            onValueChange={(v) => {
-              if (v === '__new__') { setCreatingTrack(true); return; } // не меняем фильтр
-              setTrack(v === 'all' ? null : Number(v));
-            }}
-          >
-            <SelectTrigger size="sm" className="w-44">
-              <SelectValue placeholder="All tracks">
-                {(v) => (v === 'all' ? 'All tracks' : trackName.get(Number(v)) ?? '')}
-              </SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All tracks</SelectItem>
-              {tracks.map((t) => (
-                <SelectItem key={t.id} value={String(t.id)}>
-                  {t.name} ({t.open_tasks})
+          {/* Select + иконка-действий сшиты вручную (rounded-r-none/-l-none): shadcn-вид без хрупкого ButtonGroup */}
+          <div className="flex items-center">
+            <Select
+              value={track === null ? 'all' : String(track)}
+              onValueChange={(v) => {
+                if (v === '__new__') { setCreatingTrack(true); return; } // не меняем фильтр
+                setTrack(v === 'all' ? null : Number(v));
+              }}
+            >
+              <SelectTrigger
+                size="sm"
+                // ширина по контенту (база w-fit) с потолком → длинное имя обрезается ellipsis, а не рубится;
+                // rounded-r-none! : перебить data-[size=sm]:rounded-[…] в базе триггера (вариант выше специфичности)
+                className={
+                  track === null
+                    ? 'min-w-40 max-w-64'
+                    : 'min-w-40 max-w-64 rounded-r-none! border-r-0!'
+                }
+              >
+                <SelectValue className="min-w-0" placeholder="All tracks">
+                  {(v) => (v === 'all' ? 'All tracks' : trackName.get(Number(v)) ?? '')}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All tracks</SelectItem>
+                {tracks.map((t) => (
+                  <SelectItem key={t.id} value={String(t.id)}>
+                    {t.name} ({t.open_tasks})
+                  </SelectItem>
+                ))}
+                <SelectSeparator />
+                <SelectItem value="__new__">
+                  <Plus className="size-3.5" /> New track
                 </SelectItem>
-              ))}
-              <SelectSeparator />
-              <SelectItem value="__new__">
-                <Plus className="size-3.5" /> New track
-              </SelectItem>
-            </SelectContent>
-          </Select>
-          {track !== null && (
-            <>
-              <Button size="sm" variant="outline" onClick={markDone} title="Mark track done">
-                <Check className="size-3.5" /> Done
-              </Button>
-              <Button size="sm" variant="ghost" onClick={removeTrack} title="Delete track">
-                <Trash2 className="size-3.5" />
-              </Button>
-            </>
-          )}
+              </SelectContent>
+            </Select>
+            {track !== null && (
+              <Popover open={trackMenu} onOpenChange={setTrackMenu}>
+                <PopoverTrigger
+                  render={
+                    <Button size="sm" variant="outline" title="Track actions" className="rounded-l-none!">
+                      <Settings className="size-3.5" />
+                    </Button>
+                  }
+                />
+                <PopoverContent align="end" sideOffset={4} className="w-44 gap-1 p-1">
+                  <Button
+                    size="sm" variant="ghost" className="w-full justify-start"
+                    onClick={() => { markDone(); setTrackMenu(false); }}
+                  >
+                    <Check className="size-3.5" /> Mark done
+                  </Button>
+                  <Button
+                    size="sm" variant="ghost"
+                    className="w-full justify-start text-destructive hover:text-destructive"
+                    onClick={() => { removeTrack(); setTrackMenu(false); }}
+                  >
+                    <Trash2 className="size-3.5" /> Delete track
+                  </Button>
+                </PopoverContent>
+              </Popover>
+            )}
+          </div>
         </div>
         <Button size="sm" onClick={() => setCreating(true)}>New task</Button>
       </header>

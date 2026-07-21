@@ -129,10 +129,14 @@ packages/
 pnpm install
 pnpm build         # turbo, builds every package
 pnpm test          # vitest across core / cli / mcp / ui
+pnpm dev:cli -- status   # local build on a throwaway store (~/.kdd-dev), real board untouched
 ```
 
 The plugin ships committed `dist/` for `core`, `cli` and `mcp` so it runs with no
 build step on install. Rebuild before committing if you change their source.
+
+Full workflow — dev store isolation, migration safety, live dev-plugin install,
+release — is in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 

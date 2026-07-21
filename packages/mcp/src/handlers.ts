@@ -10,6 +10,8 @@ export interface TaskRow {
   status: string;
   priority: string;
   blocked: boolean;
+  ready: boolean;
+  criteria: { checked: number; total: number };
 }
 
 export function getTask(db: Database.Database, id: number, full = false) {
@@ -28,16 +30,17 @@ export function listTracksTool(db: Database.Database) {
 
 export function listTasks(
   db: Database.Database,
-  filter: { status?: Status; area?: string; track_id?: number } = {},
+  filter: { status?: Status; area?: string; track_id?: number; ready?: boolean } = {},
 ): { tasks: Record<string, TaskRow[]>; omitted?: Record<string, number> } {
   const board = boardData(db, filter);
   const tasks: Record<string, TaskRow[]> = {};
   const omitted: Record<string, number> = {};
   for (const [status, rows] of Object.entries(board)) {
-    if (rows.length > CAPS.boardRows) omitted[status] = rows.length - CAPS.boardRows;
-    tasks[status] = rows.slice(0, CAPS.boardRows).map((t) => ({
+    if (rows.length > CAPS.listRows) omitted[status] = rows.length - CAPS.listRows;
+    tasks[status] = rows.slice(0, CAPS.listRows).map((t) => ({
       id: t.id, title: t.title, status: t.status,
-      priority: t.priority, blocked: !!t.blocked,
+      priority: t.priority, blocked: !!t.blocked, ready: !!t.ready,
+      criteria: { checked: t.criteria_checked, total: t.criteria_total },
     }));
   }
   return Object.keys(omitted).length ? { tasks, omitted } : { tasks };

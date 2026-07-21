@@ -79,6 +79,7 @@ function renderAge(epoch) {
 function taskLine(t) {
   const bits = [`#${t.id}`, cap(t.title, CAPS.titleChars), `[${t.priority}]`];
   if (t.area) bits.push(`@${t.area}`);
+  if (t.criteria_total) bits.push(`${t.criteria_checked}/${t.criteria_total}`);
   if (t.blocked) bits.push(`BLOCKED: ${cap(t.block_reason ?? "", CAPS.blockReasonChars)}`);
   return `  ${bits.join(" ")}`;
 }
@@ -217,13 +218,14 @@ program.command("decide").argument("<title>").option("--decision <t>").option("-
   out(o.json, r, () => r.created ? `decided: ${r.slug}
 ${r.path}` : `already recorded: ${r.slug}`);
 }));
-program.command("board").option("--area <area>").option("--status <s>").option("--track <id>", "track id").option("--archived", "show archived tasks only").option("--json").action((o) => run(o.json, () => {
+program.command("board").option("--area <area>").option("--status <s>").option("--track <id>", "track id").option("--ready", "only tasks takeable now (new, not blocked)").option("--archived", "show archived tasks only").option("--json").action((o) => run(o.json, () => {
   const b = withDb((db) => boardData(
     db,
     {
       area: o.area,
       status: o.status,
       archived: o.archived,
+      ready: o.ready ? true : void 0,
       track_id: o.track ? parseId(o.track) : void 0
     }
   ));

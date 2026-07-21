@@ -6,6 +6,12 @@ export interface Task {
   track_id: number | null;
   position: number; archived_at: number | null; created_at: number; updated_at: number;
 }
+// Строка доски: Task + производные поля, посчитанные на чтении (не хранятся).
+export interface TaskListRow extends Task {
+  ready: 0 | 1;               // takeable now: new & не blocked & не archived
+  criteria_checked: number;
+  criteria_total: number;
+}
 export interface Track {
   id: number; name: string; description: string | null;
   status: 'active' | 'done'; created_at: number;

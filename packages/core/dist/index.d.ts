@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 
 declare const CAPS: {
     readonly boardRows: 8;
+    readonly listRows: 20;
     readonly statusRows: 5;
     readonly statusEvents: 5;
     readonly titleChars: 50;
@@ -68,6 +69,11 @@ interface Task {
     archived_at: number | null;
     created_at: number;
     updated_at: number;
+}
+interface TaskListRow extends Task {
+    ready: 0 | 1;
+    criteria_checked: number;
+    criteria_total: number;
 }
 interface Track {
     id: number;
@@ -209,7 +215,8 @@ declare function boardData(db: Database.Database, f?: {
     status?: Status;
     archived?: boolean;
     track_id?: number;
-}): Record<Status, Task[]>;
+    ready?: boolean;
+}): Record<Status, TaskListRow[]>;
 declare function taskDetail(db: Database.Database, id: number): {
     task: Task;
     criteria: Criterion[];
@@ -248,4 +255,4 @@ declare function exportBoard(db: Database.Database): {
     events: EventRow[];
 };
 
-export { type Actor, CAPS, type Comment, type Criterion, type DecisionInput, type EventRow, KddError, MIGRATIONS, PRIORITIES, type ParsedDecision, type Priority, type RecallHit, STATUSES, type Status, TRANSITIONS, type Task, type TaskDetailCapped, type Track, addCriterion, addDecision, addTask, appendEvent, archiveTask, authorOf, blockTask, boardData, capText, checkMove, commentTask, contentHash, createTrack, deleteTrack, editTask, editTrack, exportBoard, kddHome, linkTasks, listCriteria, listProjects, listTracks, logError, moveTask, mustGetTask, mustGetTrack, now, openDb, parseDecisionMd, placeTask, rebuild, recall, removeCriterion, renderDecisionBody, renderDecisionMd, resolveDbPath, resolveDecisionsDir, sanitizeQuery, setCriterionChecked, slugify, statusDigest, syncIndex, taskDetail, taskDetailCapped, unarchiveTask, unblockTask };
+export { type Actor, CAPS, type Comment, type Criterion, type DecisionInput, type EventRow, KddError, MIGRATIONS, PRIORITIES, type ParsedDecision, type Priority, type RecallHit, STATUSES, type Status, TRANSITIONS, type Task, type TaskDetailCapped, type TaskListRow, type Track, addCriterion, addDecision, addTask, appendEvent, archiveTask, authorOf, blockTask, boardData, capText, checkMove, commentTask, contentHash, createTrack, deleteTrack, editTask, editTrack, exportBoard, kddHome, linkTasks, listCriteria, listProjects, listTracks, logError, moveTask, mustGetTask, mustGetTrack, now, openDb, parseDecisionMd, placeTask, rebuild, recall, removeCriterion, renderDecisionBody, renderDecisionMd, resolveDbPath, resolveDecisionsDir, sanitizeQuery, setCriterionChecked, slugify, statusDigest, syncIndex, taskDetail, taskDetailCapped, unarchiveTask, unblockTask };

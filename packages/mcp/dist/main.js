@@ -21110,7 +21110,9 @@ import { existsSync as existsSync3, readFileSync as readFileSync2, readdirSync a
 import { join as join3 } from "path";
 var CAPS = {
   boardRows: 8,
-  // строк на колонку: CLI board + MCP list_tasks
+  // строк на колонку в CLI board (контракт ≤4KB, cyrillic ×2 байта)
+  listRows: 20,
+  // строк на колонку в MCP list_tasks (Claude, без байт-бюджета)
   statusRows: 5,
   // строк на секцию kdd status
   statusEvents: 5,
@@ -21565,6 +21567,7 @@ function recall(db, decisionsDir, query, opts = {}) {
   });
 }
 var PRIORITY_ORDER = `CASE priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END`;
+var READY_SQL = `(status = 'new' AND blocked = 0 AND archived_at IS NULL)`;
 function boardData(db, f = {}) {
   const where = [f.archived ? "archived_at IS NOT NULL" : "archived_at IS NULL"];
   const params = [];
@@ -21580,8 +21583,14 @@ function boardData(db, f = {}) {
     where.push("status = ?");
     params.push(f.status);
   }
+  if (f.ready != null) where.push(f.ready ? READY_SQL : `NOT ${READY_SQL}`);
   const rows = db.prepare(
-    `SELECT * FROM tasks WHERE ${where.join(" AND ")}
+    `SELECT *,
+       ${READY_SQL} AS ready,
+       (SELECT COUNT(*) FROM criteria WHERE criteria.task_id = tasks.id) AS criteria_total,
+       (SELECT COUNT(*) FROM criteria WHERE criteria.task_id = tasks.id AND checked_at IS NOT NULL)
+         AS criteria_checked
+     FROM tasks WHERE ${where.join(" AND ")}
      ORDER BY position, ${PRIORITY_ORDER}, created_at`
   ).all(...params);
   const out = Object.fromEntries(STATUSES.map((s) => [s, []]));
@@ -21639,13 +21648,15 @@ function listTasks(db, filter = {}) {
   const tasks = {};
   const omitted = {};
   for (const [status, rows] of Object.entries(board)) {
-    if (rows.length > CAPS.boardRows) omitted[status] = rows.length - CAPS.boardRows;
-    tasks[status] = rows.slice(0, CAPS.boardRows).map((t) => ({
+    if (rows.length > CAPS.listRows) omitted[status] = rows.length - CAPS.listRows;
+    tasks[status] = rows.slice(0, CAPS.listRows).map((t) => ({
       id: t.id,
       title: t.title,
       status: t.status,
       priority: t.priority,
-      blocked: !!t.blocked
+      blocked: !!t.blocked,
+      ready: !!t.ready,
+      criteria: { checked: t.criteria_checked, total: t.criteria_total }
     }));
   }
   return Object.keys(omitted).length ? { tasks, omitted } : { tasks };
@@ -21697,11 +21708,12 @@ function createServer(db, dir, actor) {
   server.registerTool(
     "list_tasks",
     {
-      description: `Compact board rows in tasks, grouped by status (no body), top ${CAPS.boardRows} per status; an omitted map names truncated columns \u2014 narrow with status/track_id/area`,
+      description: `Compact board rows in tasks, grouped by status (no body), top ${CAPS.listRows} per status; each row has ready (takeable now) and criteria {checked,total}; an omitted map names truncated columns \u2014 narrow with status/track_id/area/ready`,
       inputSchema: {
         status: statusEnum.optional(),
         area: external_exports.string().optional(),
-        track_id: external_exports.number().int().positive().optional()
+        track_id: external_exports.number().int().positive().optional(),
+        ready: external_exports.boolean().optional()
       }
     },
     async (a) => guard(db, () => listTasks(db, a))

@@ -1,6 +1,6 @@
 import {
   CAPS, STATUSES, capText as cap, now,
-  type Criterion, type EventRow, type RecallHit, type Status, type Task,
+  type Criterion, type EventRow, type RecallHit, type Status, type Task, type TaskListRow,
   type TaskDetailCapped, type Track,
 } from '@kddkit/core';
 
@@ -11,14 +11,17 @@ export function renderAge(epoch: number): string {
   return `${Math.floor(d / 86400)}d`;
 }
 
-function taskLine(t: Task): string {
+// renderStatus передаёт Task[] (без criteria_*), renderBoard — TaskListRow[]; поля опциональны,
+// чтобы taskLine обслуживал оба источника без дублирования.
+function taskLine(t: Task & { criteria_total?: number; criteria_checked?: number }): string {
   const bits = [`#${t.id}`, cap(t.title, CAPS.titleChars), `[${t.priority}]`];
   if (t.area) bits.push(`@${t.area}`);
+  if (t.criteria_total) bits.push(`${t.criteria_checked}/${t.criteria_total}`);
   if (t.blocked) bits.push(`BLOCKED: ${cap(t.block_reason ?? '', CAPS.blockReasonChars)}`);
   return `  ${bits.join(' ')}`;
 }
 
-export function renderBoard(b: Record<Status, Task[]>): string {
+export function renderBoard(b: Record<Status, TaskListRow[]>): string {
   const lines: string[] = [];
   for (const s of STATUSES) {
     lines.push(`${s} (${b[s].length})`);

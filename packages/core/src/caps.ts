@@ -1,7 +1,8 @@
 // Контекст-бюджет как данные, не как дисциплина вывода: все капы CLI/MCP в одном
 // месте (паттерн hermes tool_output_limits). Числа — контракт из спеки.
 export const CAPS = {
-  boardRows: 8,            // строк на колонку: CLI board + MCP list_tasks
+  boardRows: 8,            // строк на колонку в CLI board (контракт ≤4KB, cyrillic ×2 байта)
+  listRows: 20,            // строк на колонку в MCP list_tasks (Claude, без байт-бюджета)
   statusRows: 5,           // строк на секцию kdd status
   statusEvents: 5,         // recent-событий в statusDigest
   titleChars: 50,

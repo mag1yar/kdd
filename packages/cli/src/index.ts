@@ -75,11 +75,13 @@ program.command('board')
   .option('--area <area>')
   .option('--status <s>')
   .option('--track <id>', 'track id')
+  .option('--ready', 'only tasks takeable now (new, not blocked)')
   .option('--archived', 'show archived tasks only')
   .option('--json')
   .action((o) => run(o.json, () => {
     const b = withDb((db) => boardData(db,
       { area: o.area, status: o.status as Status | undefined, archived: o.archived,
+        ready: o.ready ? true : undefined,
         track_id: o.track ? parseId(o.track) : undefined }));
     out(o.json, b, () => renderBoard(b));
   }));

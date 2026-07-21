@@ -1,7 +1,9 @@
 // src/caps.ts
 var CAPS = {
   boardRows: 8,
-  // строк на колонку: CLI board + MCP list_tasks
+  // строк на колонку в CLI board (контракт ≤4KB, cyrillic ×2 байта)
+  listRows: 20,
+  // строк на колонку в MCP list_tasks (Claude, без байт-бюджета)
   statusRows: 5,
   // строк на секцию kdd status
   statusEvents: 5,
@@ -766,6 +768,7 @@ function rebuild(db, decisionsDir) {
 
 // src/queries.ts
 var PRIORITY_ORDER = `CASE priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END`;
+var READY_SQL = `(status = 'new' AND blocked = 0 AND archived_at IS NULL)`;
 function boardData(db, f = {}) {
   const where = [f.archived ? "archived_at IS NOT NULL" : "archived_at IS NULL"];
   const params = [];
@@ -781,8 +784,14 @@ function boardData(db, f = {}) {
     where.push("status = ?");
     params.push(f.status);
   }
+  if (f.ready != null) where.push(f.ready ? READY_SQL : `NOT ${READY_SQL}`);
   const rows = db.prepare(
-    `SELECT * FROM tasks WHERE ${where.join(" AND ")}
+    `SELECT *,
+       ${READY_SQL} AS ready,
+       (SELECT COUNT(*) FROM criteria WHERE criteria.task_id = tasks.id) AS criteria_total,
+       (SELECT COUNT(*) FROM criteria WHERE criteria.task_id = tasks.id AND checked_at IS NOT NULL)
+         AS criteria_checked
+     FROM tasks WHERE ${where.join(" AND ")}
      ORDER BY position, ${PRIORITY_ORDER}, created_at`
   ).all(...params);
   const out = Object.fromEntries(STATUSES.map((s) => [s, []]));

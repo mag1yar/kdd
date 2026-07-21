@@ -55,7 +55,8 @@ export default function App() {
       .catch((e: Error) => toast.error(e.message));
   };
   const refetch = useCallback(() => {
-    getBoard(track ?? undefined).then(setBoard).catch((e: Error) => toast.error(e.message));
+    getBoard(track ?? undefined).then(setBoard)
+      .catch((e: Error) => toast.error(e.message));
   }, [track]);
   useEffect(() => { refetch(); void loadTracks(); }, [refetch, version, loadTracks]); // поллинг: version растёт → рефетч доски + счётчиков треков (UI-04)
 

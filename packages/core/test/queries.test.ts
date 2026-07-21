@@ -4,6 +4,7 @@ import { openDb } from '../src/db.js';
 import { addTask, moveTask, blockTask, archiveTask } from '../src/ops.js';
 import { boardData, taskDetail, statusDigest, exportBoard } from '../src/queries.js';
 import { linkTasks } from '../src/ops.js';
+import { addCriterion, setCriterionChecked } from '../src/criteria.js';
 
 let db: Database.Database;
 const user = { type: 'user' as const };
@@ -28,6 +29,36 @@ describe('boardData', () => {
     expect(boardData(db, { area: 'договор' }).new.map((t) => t.id)).toEqual([1]);
     expect(boardData(db).new.map((t) => t.id)).toEqual([1]);
     expect(boardData(db, { archived: true }).new.map((t) => t.id)).toEqual([2]);
+  });
+
+  it('marks only unblocked new tasks ready', () => {
+    moveTask(db, 2, 'backlog', user);        // #2 new → backlog
+    blockTask(db, 1, 'жду', user);           // #1 new but blocked
+    const b = boardData(db);
+    expect(b.new.find((t) => t.id === 1)?.ready).toBe(0);   // blocked
+    expect(b.backlog.find((t) => t.id === 2)?.ready).toBe(0); // backlog
+    expect(b.in_progress[0].ready).toBe(0);                  // in_progress
+  });
+
+  it('regression: urgent backlog task is not ready', () => {
+    moveTask(db, 1, 'backlog', user);        // #1 urgent, now backlog
+    expect(boardData(db).backlog[0].ready).toBe(0);
+  });
+
+  it('ready filter returns exactly the ready set', () => {
+    // #1, #2 are unblocked new → ready; #3 in_progress → not
+    expect(boardData(db, { ready: true }).new.map((t) => t.id)).toEqual([1, 2]);
+    expect(boardData(db, { ready: true }).in_progress).toEqual([]);
+    expect(boardData(db, { ready: false }).in_progress.map((t) => t.id)).toEqual([3]);
+  });
+
+  it('counts checked/total criteria per row', () => {
+    const c1 = addCriterion(db, 1, 'a', user);
+    addCriterion(db, 1, 'b', user);
+    setCriterionChecked(db, 1, c1.id, true, user);
+    const row = boardData(db).new.find((t) => t.id === 1);
+    expect(row?.criteria_checked).toBe(1);
+    expect(row?.criteria_total).toBe(2);
   });
 });
 

@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { addTask, openDb, mustGetTask } from '@kddkit/core';
+import {
+  addTask, openDb, mustGetTask, CAPS, moveTask, addCriterion, setCriterionChecked,
+} from '@kddkit/core';
 import { getTask, listTasks, recallTool, updateTask } from '../src/handlers.js';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -57,7 +59,8 @@ describe('listTasks', () => {
     const board = listTasks(db);
     expect(Object.keys(board.tasks)).toEqual(['backlog', 'new', 'in_progress', 'review', 'done']);
     expect(board.tasks.new).toEqual([
-      { id: 1, title: 'a', status: 'new', priority: 'high', blocked: false },
+      { id: 1, title: 'a', status: 'new', priority: 'high', blocked: false,
+        ready: true, criteria: { checked: 0, total: 0 } },
     ]);
     expect(JSON.stringify(board)).not.toContain('secret body');
   });
@@ -69,11 +72,36 @@ describe('listTasks', () => {
     expect(listTasks(db, { status: 'new' }).tasks.new.length).toBe(1);
   });
 
+  it('carries ready flag and criteria counts', () => {
+    const db = mk();
+    addTask(db, { title: 'ready one', priority: 'urgent' }, user); // #1 new
+    addTask(db, { title: 'taken' }, user);                          // #2
+    moveTask(db, 2, 'in_progress', user);
+    const c = addCriterion(db, 1, 'a', user);
+    addCriterion(db, 1, 'b', user);
+    setCriterionChecked(db, 1, c.id, true, user);
+    const row = listTasks(db).tasks.new[0];
+    expect(row.ready).toBe(true);
+    expect(row.criteria).toEqual({ checked: 1, total: 2 });
+    expect(listTasks(db).tasks.in_progress[0].ready).toBe(false);
+  });
+
+  it('ready filter narrows to takeable tasks', () => {
+    const db = mk();
+    addTask(db, { title: 'ready one', priority: 'urgent' }, user);
+    addTask(db, { title: 'taken' }, user);
+    moveTask(db, 2, 'in_progress', user);
+    const r = listTasks(db, { ready: true });
+    expect(r.tasks.new.map((t) => t.id)).toEqual([1]);
+    expect(r.tasks.in_progress ?? []).toEqual([]);
+  });
+
   it('caps rows per status and reports omitted outside the status map', () => {
     const db = mk();
-    for (let i = 0; i < 11; i++) addTask(db, { title: `t${i}` }, user);
+    const over = CAPS.listRows + 3;
+    for (let i = 0; i < over; i++) addTask(db, { title: `t${i}` }, user);
     const board = listTasks(db);
-    expect(board.tasks.new.length).toBe(8);
+    expect(board.tasks.new.length).toBe(CAPS.listRows);
     expect(board.omitted).toEqual({ new: 3 });
     // generic-итератор по колонкам не должен спотыкаться об omitted
     for (const rows of Object.values(board.tasks)) expect(Array.isArray(rows)).toBe(true);

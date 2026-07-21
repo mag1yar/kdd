@@ -43,11 +43,12 @@ export function createServer(db: Database.Database, dir: string, actor: Actor): 
   server.registerTool('list_tasks',
     {
       description: 'Compact board rows in tasks, grouped by status (no body), top '
-        + `${CAPS.boardRows} per status; an omitted map names truncated columns — `
-        + 'narrow with status/track_id/area',
+        + `${CAPS.listRows} per status; each row has ready (takeable now) and criteria {checked,total}; `
+        + 'an omitted map names truncated columns — narrow with status/track_id/area/ready',
       inputSchema: {
         status: statusEnum.optional(), area: z.string().optional(),
         track_id: z.number().int().positive().optional(),
+        ready: z.boolean().optional(),
       },
     },
     async (a) => guard(db, () => h.listTasks(db, a)));

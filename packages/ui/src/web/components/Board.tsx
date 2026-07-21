@@ -112,6 +112,11 @@ function TaskCard({ task, trackName, onOpen, asHandle }: {
         {task.blocked === 1 && (
           <Badge variant="destructive" className="h-5 rounded-sm px-1.5 text-xs">blocked</Badge>
         )}
+        {task.criteria_total > 0 && (
+          <Badge variant="outline" className="h-5 rounded-sm px-1.5 text-xs">
+            {task.criteria_checked}/{task.criteria_total}
+          </Badge>
+        )}
       </div>
     </div>
   );

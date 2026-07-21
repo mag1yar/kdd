@@ -10,12 +10,17 @@ const VERSION = '^12.11.1'; // must match @kddkit/core
 const pluginRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 function resolves() {
-  try {
-    createRequire(import.meta.url).resolve('better-sqlite3');
-    return true;
-  } catch {
-    return false;
+  // Prod: installed into pluginRoot/node_modules (base = this script).
+  // Dev: pnpm keeps it in a nested store, unhoisted — resolve from packages/core,
+  // where it is linked. Either base succeeding means the runtime can load it.
+  const bases = [import.meta.url, join(pluginRoot, 'packages/core/index.js')];
+  for (const base of bases) {
+    try {
+      createRequire(base).resolve('better-sqlite3');
+      return true;
+    } catch { /* try next base */ }
   }
+  return false;
 }
 
 if (!resolves()) {

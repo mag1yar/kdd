@@ -98,11 +98,18 @@ describe('sweepWorktrees', () => {
 
   it('чужой worktree (не kdd/task-*) не тронут', () => {
     const db = openDb(':memory:');
-    g(['worktree', 'add', join(repo, '..', 'other-wt'), '-b', 'feature/x']);
-    const before = g(['worktree', 'list', '--porcelain']);
-    expect(sweepWorktrees(db, repo)).toBe(0);
-    expect(g(['worktree', 'list', '--porcelain'])).toBe(before);
-    db.close();
-    g(['worktree', 'remove', '--force', join(repo, '..', 'other-wt')]);
+    // уникальный путь (не repo/../other-wt — тот коллапсирует в общий tmp-корень и течёт между запусками)
+    const otherRoot = mkdtempSync(join(tmpdir(), 'kdd-wt-other-'));
+    const other = join(otherRoot, 'wt');
+    try {
+      g(['worktree', 'add', other, '-b', 'feature/x']);
+      const before = g(['worktree', 'list', '--porcelain']);
+      expect(sweepWorktrees(db, repo)).toBe(0);
+      expect(g(['worktree', 'list', '--porcelain'])).toBe(before);
+    } finally {
+      g(['worktree', 'remove', '--force', other]);
+      rmSync(otherRoot, { recursive: true, force: true });
+      db.close();
+    }
   });
 });

@@ -24,6 +24,11 @@ export interface EventRow {
   action: string; detail: string | null; created_at: number;
 }
 export interface Link { id: number; title: string; kind: string; }
+export interface AgentEvent {
+  id: number; task_id: number; worker_id: string;
+  kind: 'run_start' | 'text' | 'tool_start' | 'tool_finish' | 'error' | 'run_end';
+  name: string | null; detail: string | null; created_at: number;
+}
 export type Board = Record<Status, Task[]>;
 export interface TaskDetail {
   task: Task; criteria: Criterion[]; comments: Comment[]; events: EventRow[]; links: Link[];
@@ -79,3 +84,5 @@ export const blockTask = (id: number, reason: string) =>
   req<Task>(`/api/tasks/${id}/block`, { method: 'POST', body: JSON.stringify({ reason }) });
 export const unblockTask = (id: number) =>
   req<Task>(`/api/tasks/${id}/unblock`, { method: 'POST' });
+export const getFeed = (id: number, since = 0) =>
+  req<AgentEvent[]>(`/api/tasks/${id}/feed?since=${since}`);

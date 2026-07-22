@@ -126,6 +126,20 @@ export const MIGRATIONS: string[] = [
   -- reset при достижении review; при K попыток задача авто-блокируется. Старые задачи: 0.
   ALTER TABLE tasks ADD COLUMN failed_attempts INTEGER NOT NULL DEFAULT 0;
   `,
+  `
+  -- Tier1 feed: поток активности воркера (текст, tool-вызовы) отдельно от audit-events.
+  -- Изолирован намеренно: get_task/status/MCP его НЕ читают — иначе поток забьёт LLM-контекст.
+  CREATE TABLE agent_events (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id    INTEGER NOT NULL REFERENCES tasks(id),
+    worker_id  TEXT NOT NULL,
+    kind       TEXT NOT NULL,
+    name       TEXT,
+    detail     TEXT,
+    created_at INTEGER NOT NULL
+  );
+  CREATE INDEX idx_agent_events_task ON agent_events(task_id, id);
+  `,
 ];
 
 export function openDb(dbPath: string, projectPath?: string): Database.Database {

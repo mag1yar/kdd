@@ -12,6 +12,7 @@ import {
 } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { cn } from '@/lib/utils';
+import { AgentFeed } from './AgentFeed';
 import { MarkdownEditor } from './MarkdownEditor';
 import {
   PRIORITIES, STATUSES, addComment, addCriterion, blockTask, editTask, getTask, moveTask,
@@ -51,7 +52,7 @@ export function TaskDialog({ id, version, tracks, onClose, onChanged }: {
   const [detail, setDetail] = useState<TaskDetail | null>(null);
   const [editing, setEditing] = useState(false);
   const [comment, setComment] = useState('');
-  const [tab, setTab] = useState<'comments' | 'history'>('comments');
+  const [tab, setTab] = useState<'comments' | 'history' | 'activity'>('comments');
 
   const reload = () => getTask(id!).then(setDetail).catch((e: Error) => toast.error(e.message));
   useEffect(() => {
@@ -109,12 +110,13 @@ export function TaskDialog({ id, version, tracks, onClose, onChanged }: {
 
             <Tabs
               value={tab}
-              onValueChange={(v) => setTab(v as 'comments' | 'history')}
+              onValueChange={(v) => setTab(v as 'comments' | 'history' | 'activity')}
               className="border-t pt-3"
             >
               <TabsList variant="line">
                 <TabsTrigger value="comments">Comments <span className="text-muted-foreground">{comments.length}</span></TabsTrigger>
                 <TabsTrigger value="history">History <span className="text-muted-foreground">{events.length}</span></TabsTrigger>
+                <TabsTrigger value="activity">Activity</TabsTrigger>
               </TabsList>
 
               <TabsContent value="comments" className="flex flex-col gap-2 pt-2">
@@ -157,6 +159,10 @@ export function TaskDialog({ id, version, tracks, onClose, onChanged }: {
                     </li>
                   ))}
                 </ol>
+              </TabsContent>
+
+              <TabsContent value="activity" className="pt-2">
+                <AgentFeed taskId={task.id} />
               </TabsContent>
             </Tabs>
           </div>

@@ -296,4 +296,29 @@ declare function tick(db: Database.Database, opts: {
     spawn: SpawnFn;
 }): TickResult;
 
-export { type Actor, CAPS, type Comment, type Criterion, DEFAULT_TTL, type DecisionInput, type EventRow, KddError, MAX_FAILED_ATTEMPTS, MIGRATIONS, PRIORITIES, PRIORITY_ORDER, type ParsedDecision, type Priority, type RecallHit, STATUSES, type SpawnFn, type Status, TRANSITIONS, type Task, type TaskDetailCapped, type TaskListRow, type TickResult, type Track, addCriterion, addDecision, addTask, appendEvent, archiveTask, authorOf, blockTask, boardData, capText, checkMove, claimNext, claimTask, commentTask, contentHash, createTrack, deleteTrack, editTask, editTrack, exportBoard, kddHome, linkTasks, listCriteria, listProjects, listTracks, logError, moveTask, mustGetTask, mustGetTrack, now, openDb, parseDecisionMd, placeTask, rebuild, recall, reclaimExpired, recordFailedAttempt, releaseClaim, removeCriterion, renderDecisionBody, renderDecisionMd, renewClaim, resolveDbPath, resolveDecisionsDir, resolveToplevel, sanitizeQuery, setCriterionChecked, slugify, statusDigest, syncIndex, taskDetail, taskDetailCapped, tick, unarchiveTask, unblockTask };
+type AgentEventKind = 'run_start' | 'text' | 'tool_start' | 'tool_finish' | 'error' | 'run_end';
+interface AgentEvent {
+    id: number;
+    task_id: number;
+    worker_id: string;
+    kind: AgentEventKind;
+    name: string | null;
+    detail: string | null;
+    created_at: number;
+}
+interface ParsedEvent {
+    kind: AgentEventKind;
+    name?: string;
+    detail?: object;
+}
+declare function parseClaudeStreamLine(line: string): ParsedEvent[];
+declare function appendAgentEvent(db: Database.Database, taskId: number, workerId: string, kind: AgentEventKind, opts?: {
+    name?: string;
+    detail?: object;
+}): number;
+declare function listAgentEvents(db: Database.Database, taskId: number, opts?: {
+    sinceId?: number;
+    limit?: number;
+}): AgentEvent[];
+
+export { type Actor, type AgentEvent, type AgentEventKind, CAPS, type Comment, type Criterion, DEFAULT_TTL, type DecisionInput, type EventRow, KddError, MAX_FAILED_ATTEMPTS, MIGRATIONS, PRIORITIES, PRIORITY_ORDER, type ParsedDecision, type ParsedEvent, type Priority, type RecallHit, STATUSES, type SpawnFn, type Status, TRANSITIONS, type Task, type TaskDetailCapped, type TaskListRow, type TickResult, type Track, addCriterion, addDecision, addTask, appendAgentEvent, appendEvent, archiveTask, authorOf, blockTask, boardData, capText, checkMove, claimNext, claimTask, commentTask, contentHash, createTrack, deleteTrack, editTask, editTrack, exportBoard, kddHome, linkTasks, listAgentEvents, listCriteria, listProjects, listTracks, logError, moveTask, mustGetTask, mustGetTrack, now, openDb, parseClaudeStreamLine, parseDecisionMd, placeTask, rebuild, recall, reclaimExpired, recordFailedAttempt, releaseClaim, removeCriterion, renderDecisionBody, renderDecisionMd, renewClaim, resolveDbPath, resolveDecisionsDir, resolveToplevel, sanitizeQuery, setCriterionChecked, slugify, statusDigest, syncIndex, taskDetail, taskDetailCapped, tick, unarchiveTask, unblockTask };

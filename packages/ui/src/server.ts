@@ -6,8 +6,8 @@ import { serve } from '@hono/node-server';
 import { Hono, type Context } from 'hono';
 import {
   KddError, addCriterion, addTask, blockTask, boardData, commentTask, createTrack, deleteTrack,
-  editTask, editTrack, kddHome, listProjects, listTracks, moveTask, openDb, placeTask,
-  removeCriterion, setCriterionChecked, taskDetail, unblockTask, type Priority,
+  editTask, editTrack, kddHome, listAgentEvents, listProjects, listTracks, moveTask, openDb,
+  placeTask, removeCriterion, setCriterionChecked, taskDetail, unblockTask, type Priority,
 } from '@kddkit/core';
 
 const hashOf = (dbPath: string) => basename(dirname(dbPath));
@@ -103,6 +103,10 @@ export function createApp(
   }));
 
   app.get('/api/tasks/:id', (c) => c.json(taskDetail(getDb(c), taskId(c))));
+
+  // Tier1 agent feed: события воркера для таска, инкрементально по since=<id>.
+  app.get('/api/tasks/:id/feed', (c) => c.json(
+    listAgentEvents(getDb(c), taskId(c), { sinceId: Number(c.req.query('since') ?? 0) })));
 
   app.post('/api/tasks', async (c) => {
     const b = await jsonBody(c);

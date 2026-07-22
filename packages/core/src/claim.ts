@@ -9,6 +9,37 @@ import type { Task } from './types.js';
 export const DEFAULT_TTL = 15 * 60; // сек; hermes-дефолт, override через --ttl
 const SYSTEM: Actor = { type: 'ai', id: 'system' }; // provenance ленивого reclaim (не притворяемся владельцем)
 
+export const MAX_FAILED_ATTEMPTS = 3; // K: подряд неудачных попыток -> авто-блок задачи
+
+// Учёт неудачной попытки агента: ++счётчик, при K -> блок. Внутри открытой транзакции.
+export function recordFailedAttempt(
+  db: Database.Database, id: number, actor: Actor, reason: string,
+): void {
+  db.prepare(`UPDATE tasks SET failed_attempts = failed_attempts + 1, updated_at = ? WHERE id = ?`)
+    .run(now(), id);
+  const fa = (db.prepare(`SELECT failed_attempts FROM tasks WHERE id = ?`).get(id) as
+    { failed_attempts: number }).failed_attempts;
+  if (fa >= MAX_FAILED_ATTEMPTS) {
+    db.prepare(`UPDATE tasks SET blocked = 1, block_reason = ?, updated_at = ? WHERE id = ?`)
+      .run(`${fa} failed attempts (agent driver): ${reason}`, now(), id);
+    appendEvent(db, id, actor, 'blocked',
+      { reason: `${fa} failed attempts`, last: reason }, { type: 'claim', level: 'error' });
+  }
+}
+
+// Освобождение claim без прогресса (sync spawn-fail): in_progress -> new, снять lease, засчитать неудачу.
+export function releaseClaim(
+  db: Database.Database, id: number, actor: Actor, reason: string,
+): void {
+  db.transaction(() => {
+    db.prepare(
+      `UPDATE tasks SET status='new', claimed_by=NULL, claim_expires=NULL, updated_at=? WHERE id=?`,
+    ).run(now(), id);
+    appendEvent(db, id, actor, 'released', { reason }, { type: 'claim', level: 'warn' });
+    recordFailedAttempt(db, id, actor, reason);
+  })();
+}
+
 // NaN/0/negative ttl -> claim_expires = NaN, который reclaimExpired (< ?) никогда не матчит: lease навечно.
 function assertTtl(ttl: number): void {
   if (!Number.isFinite(ttl) || ttl <= 0) throw new KddError(`invalid ttl '${ttl}' (seconds > 0)`);
@@ -36,6 +67,10 @@ export function reclaimExpired(db: Database.Database): number[] {
   for (const e of expired) {
     clear.run(t, e.id);
     appendEvent(db, e.id, SYSTEM, 'reclaimed', { former: e.claimed_by }, { type: 'claim', level: 'warn' });
+    // только tick-спауны штрафуем: долгая/ручная user-claim, истёкшая по TTL, не должна авто-блокироваться
+    if (e.claimed_by?.startsWith('ai:tick:')) {
+      recordFailedAttempt(db, e.id, SYSTEM, 'lease expired without progress');
+    }
   }
   return expired.map((e) => e.id);
 }
@@ -67,10 +102,13 @@ export function claimTask(
 }
 
 // null = очередь пуста (не ошибка). Гонка разрешается перебором: проигравший CAS -> следующий кандидат.
-export function claimNext(db: Database.Database, actor: Actor, ttl = DEFAULT_TTL): Task | null {
+// opts.reclaim=false пропускает внутренний reclaimExpired — для caller'ов (tick), которые уже прогнали его сами.
+export function claimNext(
+  db: Database.Database, actor: Actor, ttl = DEFAULT_TTL, opts: { reclaim?: boolean } = {},
+): Task | null {
   assertTtl(ttl);
   return db.transaction(() => {
-    reclaimExpired(db);
+    if (opts.reclaim !== false) reclaimExpired(db);
     const rows = db.prepare(
       `SELECT id FROM tasks WHERE ${CLAIMABLE_SQL} ORDER BY ${PRIORITY_ORDER}, created_at, id`,
     ).all() as { id: number }[];

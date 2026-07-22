@@ -21258,6 +21258,11 @@ var MIGRATIONS = [
   -- \u0418\u043D\u0432\u0430\u0440\u0438\u0430\u043D\u0442: claimed_by IS NOT NULL <=> status='in_progress'. \u0421\u0442\u0430\u0440\u044B\u0435 \u0437\u0430\u0434\u0430\u0447\u0438: NULL.
   ALTER TABLE tasks ADD COLUMN claimed_by TEXT;
   ALTER TABLE tasks ADD COLUMN claim_expires INTEGER;
+  `,
+  `
+  -- driver-\u0441\u043B\u0430\u0439\u0441: \u0441\u0447\u0451\u0442\u0447\u0438\u043A \u043D\u0435\u0443\u0434\u0430\u0447\u043D\u044B\u0445 \u043F\u043E\u043F\u044B\u0442\u043E\u043A \u0430\u0433\u0435\u043D\u0442\u0430 (spawn-fail + \u043D\u0435\u043F\u0440\u043E\u0434\u0443\u043A\u0442\u0438\u0432\u043D\u044B\u0439 reclaim).
+  -- reset \u043F\u0440\u0438 \u0434\u043E\u0441\u0442\u0438\u0436\u0435\u043D\u0438\u0438 review; \u043F\u0440\u0438 K \u043F\u043E\u043F\u044B\u0442\u043E\u043A \u0437\u0430\u0434\u0430\u0447\u0430 \u0430\u0432\u0442\u043E-\u0431\u043B\u043E\u043A\u0438\u0440\u0443\u0435\u0442\u0441\u044F. \u0421\u0442\u0430\u0440\u044B\u0435 \u0437\u0430\u0434\u0430\u0447\u0438: 0.
+  ALTER TABLE tasks ADD COLUMN failed_attempts INTEGER NOT NULL DEFAULT 0;
   `
 ];
 function openDb(dbPath, projectPath) {
@@ -21322,10 +21327,16 @@ var TRANSITIONS = {
   review: ["in_progress", "done"],
   done: ["review"]
 };
-function checkMove(from, to, actor, reason, openCriteria2 = 0) {
+function checkMove(from, to, actor, reason, openCriteria2 = 0, claimedBy = null) {
   if (from === to) return { ok: false, error: `task is already in ${to}` };
   if (actor.type === "user") return { ok: true };
   if (reason) return { ok: true };
+  if (from === "in_progress" && claimedBy?.startsWith("ai:") && claimedBy !== `ai:${actor.id ?? "?"}`) {
+    return {
+      ok: false,
+      error: `lease lost (held by ${claimedBy}); you no longer own this task \u2014 stop work`
+    };
+  }
   if (!TRANSITIONS[from].includes(to)) {
     return {
       ok: false,
@@ -21428,11 +21439,12 @@ function moveTask(db, id, to, actor, reason) {
   checkStatus(to);
   return db.transaction(() => {
     const t = mustGetTask(db, id);
-    const res = checkMove(t.status, to, actor, reason, openCriteria(db, id));
+    const res = checkMove(t.status, to, actor, reason, openCriteria(db, id), t.claimed_by);
     if (!res.ok) throw new KddError(res.error);
     const leaving = t.status === "in_progress" && to !== "in_progress";
+    const reset = to === "review";
     db.prepare(
-      `UPDATE tasks SET status = ?, position = ?, updated_at = ?${leaving ? ", claimed_by = NULL, claim_expires = NULL" : ""}
+      `UPDATE tasks SET status = ?, position = ?, updated_at = ?${leaving ? ", claimed_by = NULL, claim_expires = NULL" : ""}${reset ? ", failed_attempts = 0" : ""}
        WHERE id = ?`
     ).run(to, nextPosition(db, to), now(), id);
     appendEvent(

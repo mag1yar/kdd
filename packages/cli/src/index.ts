@@ -1,16 +1,19 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
 import { readFileSync } from 'node:fs';
-import { basename, dirname } from 'node:path';
+import { basename, dirname, join } from 'node:path';
+import { spawn as spawnProcess } from 'node:child_process';
+import lockfile from 'proper-lockfile';
 import {
   KddError, addCriterion, addDecision, addTask, archiveTask, blockTask, boardData, claimNext,
   claimTask, commentTask, createTrack, deleteTrack, DEFAULT_TTL, editTask, editTrack, exportBoard,
   linkTasks, listCriteria, listProjects, listTracks, moveTask, openDb, rebuild, recall,
-  removeCriterion, renewClaim, resolveDbPath, resolveDecisionsDir, setCriterionChecked,
-  statusDigest, taskDetail, taskDetailCapped, unarchiveTask, unblockTask, type Status,
+  removeCriterion, renewClaim, resolveDbPath, resolveDecisionsDir, resolveToplevel,
+  setCriterionChecked, statusDigest, taskDetail, taskDetailCapped, tick, unarchiveTask,
+  unblockTask, type Status,
 } from '@kddkit/core';
 import { projectPool, startUi } from '@kddkit/ui';
-import { fail, getActor, parseId, withDb } from './context.js';
+import { fail, getActor, parseId, withDb, withDbAt } from './context.js';
 import {
   renderBoard, renderClaim, renderCriteria, renderRecall, renderShow, renderStatus, renderTracks,
 } from './render.js';
@@ -27,6 +30,34 @@ function readBody(opts: { body?: string; bodyFile?: string }): string | undefine
   if (opts.bodyFile) return readFileSync(opts.bodyFile, 'utf8');
   if (opts.body === '-') return readFileSync(0, 'utf8'); // stdin
   return opts.body;
+}
+
+const DEFAULT_SPAWN_CMD =
+  `claude -p 'You are a kdd agent worker. Read your task: run \`kdd show $KDD_TASK_ID\`. ` +
+  `Do the work in this repository. Renew your lease periodically with \`kdd claim $KDD_TASK_ID --renew\` — ` +
+  `if that errors you have LOST the lease, stop immediately. When done, check acceptance criteria ` +
+  `(\`kdd criteria check\`), then \`kdd move $KDD_TASK_ID review\`.'`;
+
+const TICK_LOCK_STALE = 10 * 60 * 1000; // ms; tick короткоживущий — 10 мин >> его длительности
+
+// Детач fire-and-forget через login-shell (-lc грузит PATH: детач-процесс иначе не найдёт claude/npx).
+function spawnWorker(taskId: number, workerId: string, projectDir: string): void {
+  const cmd = process.env.KDD_SPAWN_CMD ?? DEFAULT_SPAWN_CMD;
+  const shell = process.env.SHELL || '/bin/sh';
+  const child = spawnProcess(shell, ['-lc', cmd], {
+    cwd: projectDir,
+    env: { ...process.env, KDD_TASK_ID: String(taskId), KDD_ACTOR: 'ai', KDD_SESSION: workerId },
+    detached: true,
+    stdio: 'ignore',
+  });
+  child.on('error', (e) => {
+    // async spawn-fail (ENOENT shell, EMFILE): без обработчика 'error' — uncaught -> crash tick.
+    // releaseClaim здесь НЕ вызвать: withDb уже закрыл db к моменту события. Задача останется
+    // in_progress до TTL -> reclaimExpired вернёт её и (для ai:tick) засчитает неудачу. Тут только
+    // гасим краш + пишем в stderr для диагностики.
+    process.stderr.write(`kdd tick: worker spawn failed for task ${taskId}: ${e.message}\n`);
+  });
+  child.unref(); // tick не ждёт воркера
 }
 
 function run(json: boolean, fn: () => void): void {
@@ -124,6 +155,33 @@ program.command('claim')
       o.renew ? renewClaim(db, parseId(id), actor, ttl) : claimTask(db, parseId(id), actor, ttl));
     if (!res.ok) { fail(res.error, o.json); return; }
     out(o.json, res.task, () => renderClaim(res.task, o.renew ? 'renewed' : 'claimed'));
+  }));
+
+program.command('tick')
+  .description('agent-mode: reclaim expired leases, claim ready tasks, spawn workers')
+  .option('--json')
+  .action((o) => run(o.json, () => {
+    const maxWorkers = Number(process.env.KDD_MAX_WORKERS ?? 3);
+    const ttl = Number(process.env.KDD_WORKER_TTL ?? 1800);
+    if (!Number.isInteger(maxWorkers) || maxWorkers < 1) fail('KDD_MAX_WORKERS must be a positive integer', o.json);
+    const { dbPath, projectPath } = resolveDbPath();
+    let release: (() => void) | undefined;
+    try {
+      release = lockfile.lockSync(join(dirname(dbPath), 'tick'), { stale: TICK_LOCK_STALE, realpath: false });
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === 'ELOCKED') {
+        out(o.json, { skipped: true }, () => 'tick: locked (another tick running)'); return;
+      }
+      throw e;
+    }
+    try {
+      const toplevel = resolveToplevel();
+      const r = withDbAt(dbPath, projectPath,
+        (db) => tick(db, { maxWorkers, ttl, projectDir: toplevel, spawn: spawnWorker }));
+      out(o.json, r, () => `tick: reclaimed ${r.reclaimed}, spawned ${r.spawned}, active ${r.active}`);
+    } finally {
+      release();
+    }
   }));
 
 program.command('edit')

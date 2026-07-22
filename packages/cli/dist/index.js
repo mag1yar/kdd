@@ -3,7 +3,9 @@
 // src/index.ts
 import { Command } from "commander";
 import { readFileSync } from "fs";
-import { basename, dirname } from "path";
+import { basename, dirname, join } from "path";
+import { spawn as spawnProcess } from "child_process";
+import lockfile from "proper-lockfile";
 import {
   KddError as KddError2,
   addCriterion,
@@ -33,10 +35,12 @@ import {
   renewClaim,
   resolveDbPath as resolveDbPath2,
   resolveDecisionsDir,
+  resolveToplevel,
   setCriterionChecked,
   statusDigest,
   taskDetail,
   taskDetailCapped,
+  tick,
   unarchiveTask,
   unblockTask
 } from "@kddkit/core";
@@ -47,14 +51,17 @@ import { KddError, openDb, resolveDbPath } from "@kddkit/core";
 function getActor() {
   return process.env.KDD_ACTOR === "ai" ? { type: "ai", id: process.env.KDD_SESSION } : { type: "user" };
 }
-function withDb(fn) {
-  const { dbPath, projectPath } = resolveDbPath();
+function withDbAt(dbPath, projectPath, fn) {
   const db = openDb(dbPath, projectPath);
   try {
     return fn(db);
   } finally {
     db.close();
   }
+}
+function withDb(fn) {
+  const { dbPath, projectPath } = resolveDbPath();
+  return withDbAt(dbPath, projectPath, fn);
 }
 function parseId(s) {
   const n = Number(s.replace(/^#/, ""));
@@ -190,6 +197,23 @@ function readBody(opts) {
   if (opts.body === "-") return readFileSync(0, "utf8");
   return opts.body;
 }
+var DEFAULT_SPAWN_CMD = `claude -p 'You are a kdd agent worker. Read your task: run \`kdd show $KDD_TASK_ID\`. Do the work in this repository. Renew your lease periodically with \`kdd claim $KDD_TASK_ID --renew\` \u2014 if that errors you have LOST the lease, stop immediately. When done, check acceptance criteria (\`kdd criteria check\`), then \`kdd move $KDD_TASK_ID review\`.'`;
+var TICK_LOCK_STALE = 10 * 60 * 1e3;
+function spawnWorker(taskId, workerId, projectDir) {
+  const cmd = process.env.KDD_SPAWN_CMD ?? DEFAULT_SPAWN_CMD;
+  const shell = process.env.SHELL || "/bin/sh";
+  const child = spawnProcess(shell, ["-lc", cmd], {
+    cwd: projectDir,
+    env: { ...process.env, KDD_TASK_ID: String(taskId), KDD_ACTOR: "ai", KDD_SESSION: workerId },
+    detached: true,
+    stdio: "ignore"
+  });
+  child.on("error", (e) => {
+    process.stderr.write(`kdd tick: worker spawn failed for task ${taskId}: ${e.message}
+`);
+  });
+  child.unref();
+}
 function run(json, fn) {
   try {
     fn();
@@ -269,6 +293,33 @@ program.command("claim").argument("[id]", "task id to claim; omit when using --n
     return;
   }
   out(o.json, res.task, () => renderClaim(res.task, o.renew ? "renewed" : "claimed"));
+}));
+program.command("tick").description("agent-mode: reclaim expired leases, claim ready tasks, spawn workers").option("--json").action((o) => run(o.json, () => {
+  const maxWorkers = Number(process.env.KDD_MAX_WORKERS ?? 3);
+  const ttl = Number(process.env.KDD_WORKER_TTL ?? 1800);
+  if (!Number.isInteger(maxWorkers) || maxWorkers < 1) fail("KDD_MAX_WORKERS must be a positive integer", o.json);
+  const { dbPath, projectPath } = resolveDbPath2();
+  let release;
+  try {
+    release = lockfile.lockSync(join(dirname(dbPath), "tick"), { stale: TICK_LOCK_STALE, realpath: false });
+  } catch (e) {
+    if (e.code === "ELOCKED") {
+      out(o.json, { skipped: true }, () => "tick: locked (another tick running)");
+      return;
+    }
+    throw e;
+  }
+  try {
+    const toplevel = resolveToplevel();
+    const r = withDbAt(
+      dbPath,
+      projectPath,
+      (db) => tick(db, { maxWorkers, ttl, projectDir: toplevel, spawn: spawnWorker })
+    );
+    out(o.json, r, () => `tick: reclaimed ${r.reclaimed}, spawned ${r.spawned}, active ${r.active}`);
+  } finally {
+    release();
+  }
 }));
 program.command("edit").argument("<id>").option("--title <t>").option("--body <md>").option("--body-file <path>").option("--priority <p>").option("--area <a>").option("--track <id>", 'track id, or "none" to detach').option("--json").action((id, o) => run(o.json, () => {
   const track_id = o.track === void 0 ? void 0 : o.track === "none" ? null : parseId(o.track);

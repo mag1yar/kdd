@@ -11,3 +11,4 @@ export * from './decisions.js';
 export * from './recall.js';
 export * from './queries.js';
 export * from './claim.js';
+export * from './driver.js';

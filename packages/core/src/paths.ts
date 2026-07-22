@@ -34,6 +34,16 @@ export function resolveDecisionsDir(cwd: string = process.cwd()): string {
   return join(top, '.planning', 'decisions');
 }
 
+export function resolveToplevel(cwd: string = process.cwd()): string {
+  if (process.env.KDD_TOPLEVEL) return process.env.KDD_TOPLEVEL; // override для тестов/edge
+  try {
+    return execFileSync('git', ['rev-parse', '--show-toplevel'],
+      { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+  } catch {
+    throw new KddError('not in a git repository (kdd tick resolves worker cwd via git)');
+  }
+}
+
 export function listProjects(): { dbPath: string; projectPath: string }[] {
   const home = kddHome();
   if (!existsSync(home)) return [];

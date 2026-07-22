@@ -1,9 +1,11 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import type Database from 'better-sqlite3';
 import { openDb } from '../src/db.js';
-import { addTask, moveTask } from '../src/ops.js';
-import { addCriterion } from '../src/criteria.js';
-import { claimTask, claimNext, renewClaim, reclaimExpired, DEFAULT_TTL } from '../src/claim.js';
+import { addTask, moveTask, placeTask } from '../src/ops.js';
+import { addCriterion, setCriterionChecked } from '../src/criteria.js';
+import {
+  claimTask, claimNext, renewClaim, reclaimExpired, releaseClaim, MAX_FAILED_ATTEMPTS, DEFAULT_TTL,
+} from '../src/claim.js';
 import { now } from '../src/db.js';
 import { KddError } from '../src/errors.js';
 
@@ -121,5 +123,141 @@ describe('claim invariant on move', () => {
     expect(db.prepare(`SELECT claimed_by FROM tasks WHERE id=?`).get(id)).toEqual({ claimed_by: null });
     // и снова берётся
     expect(claimNext(db, ai2)!.id).toBe(id);
+  });
+});
+
+describe('run-token fence', () => {
+  function readyClaimed(db: ReturnType<typeof openDb>, holder: string) {
+    const t = addTask(db, { title: 'w' }, { type: 'user' });
+    const c = addCriterion(db, t.id, 'done', { type: 'user' });
+    setCriterionChecked(db, t.id, c.id, true, { type: 'user' });
+    const r = claimTask(db, t.id, { type: 'ai', id: holder });
+    expect(r.ok).toBe(true);
+    return t.id;
+  }
+
+  it('rejects an ai move from in_progress when the lease is held by another tick worker', () => {
+    const db = openDb(':memory:');
+    const id = readyClaimed(db, 's1');
+    // симулируем reclaim+respawn: задачу теперь держит другой tick-воркер
+    db.prepare(`UPDATE tasks SET claimed_by='ai:tick:999-0' WHERE id=?`).run(id);
+    expect(() => moveTask(db, id, 'review', { type: 'ai', id: 's1' }))
+      .toThrow(/lease lost/);
+  });
+
+  it('rejects an ai move when the lease is held by another (non-tick) ai session', () => {
+    const db = openDb(':memory:');
+    const id = readyClaimed(db, 's1');
+    db.prepare(`UPDATE tasks SET claimed_by='ai:s2' WHERE id=?`).run(id); // другая ai-сессия
+    expect(() => moveTask(db, id, 'review', { type: 'ai', id: 's1' }))
+      .toThrow(/lease lost/);
+  });
+
+  it('allows the holder to move to review and resets failed_attempts', () => {
+    const db = openDb(':memory:');
+    const id = readyClaimed(db, 's1');
+    db.prepare(`UPDATE tasks SET failed_attempts=2 WHERE id=?`).run(id);
+    const t = moveTask(db, id, 'review', { type: 'ai', id: 's1' });
+    expect(t.status).toBe('review');
+    expect(t.failed_attempts).toBe(0);
+  });
+
+  it('never fences a user actor', () => {
+    const db = openDb(':memory:');
+    const id = readyClaimed(db, 's1');
+    db.prepare(`UPDATE tasks SET claimed_by='ai:tick:999-0' WHERE id=?`).run(id);
+    expect(() => moveTask(db, id, 'review', { type: 'user' })).not.toThrow();
+  });
+
+  it('does NOT fence an ai move on a USER-held in_progress task (manual claim)', () => {
+    const db = openDb(':memory:');
+    const id = readyClaimed(db, 's1');
+    db.prepare(`UPDATE tasks SET claimed_by='user' WHERE id=?`).run(id);
+    expect(() => moveTask(db, id, 'review', { type: 'ai', id: 'x' })).not.toThrow();
+  });
+
+  it('does NOT fence an ai move on an UNCLAIMED in_progress task (doc-mode)', () => {
+    // doc-режим: ai двигает доску без claim -> claimed_by NULL -> fence не срабатывает.
+    const db = openDb(':memory:');
+    const t = addTask(db, { title: 'doc' }, { type: 'user' });
+    const c = addCriterion(db, t.id, 'done', { type: 'user' });
+    setCriterionChecked(db, t.id, c.id, true, { type: 'user' });
+    moveTask(db, t.id, 'in_progress', { type: 'ai', id: 's9' }); // raw move, без claim -> claimed_by NULL
+    expect(() => moveTask(db, t.id, 'review', { type: 'ai', id: 's9' })).not.toThrow();
+  });
+
+  it('placeTask fences an ai move on a task held by another tick worker', () => {
+    const db = openDb(':memory:');
+    const id = readyClaimed(db, 's1');
+    db.prepare(`UPDATE tasks SET claimed_by='ai:tick:999-0' WHERE id=?`).run(id);
+    expect(() => placeTask(db, id, 'review', [id], { type: 'ai', id: 's1' }))
+      .toThrow(/lease lost/);
+  });
+
+  it('placeTask resets failed_attempts when the holder reaches review', () => {
+    const db = openDb(':memory:');
+    const id = readyClaimed(db, 's1');
+    db.prepare(`UPDATE tasks SET failed_attempts=2 WHERE id=?`).run(id);
+    const t = placeTask(db, id, 'review', [id], { type: 'ai', id: 's1' });
+    expect(t.status).toBe('review');
+    expect(t.failed_attempts).toBe(0);
+  });
+});
+
+describe('failure accounting', () => {
+  // tick-спаун: claimed_by='ai:tick:1-0' -> reclaim штрафует (Fix B).
+  function claimedExpired(db: ReturnType<typeof openDb>) {
+    const t = addTask(db, { title: 'w' }, { type: 'user' });
+    const c = addCriterion(db, t.id, 'd', { type: 'user' });
+    setCriterionChecked(db, t.id, c.id, true, { type: 'user' });
+    claimTask(db, t.id, { type: 'ai', id: 'tick:1-0' });
+    db.prepare(`UPDATE tasks SET claim_expires = 1 WHERE id=?`).run(t.id); // истёк в прошлом
+    return t.id;
+  }
+
+  it('reclaim increments failed_attempts and returns task to new', () => {
+    const db = openDb(':memory:');
+    const id = claimedExpired(db);
+    reclaimExpired(db);
+    const t = db.prepare(`SELECT status, failed_attempts, blocked FROM tasks WHERE id=?`).get(id) as any;
+    expect(t.status).toBe('new');
+    expect(t.failed_attempts).toBe(1);
+    expect(t.blocked).toBe(0);
+  });
+
+  it('auto-blocks after K reclaims', () => {
+    const db = openDb(':memory:');
+    const id = claimedExpired(db);
+    for (let i = 0; i < MAX_FAILED_ATTEMPTS; i++) {
+      db.prepare(`UPDATE tasks SET status='in_progress', claimed_by='ai:tick:1-0', claim_expires=1 WHERE id=?`).run(id);
+      reclaimExpired(db);
+    }
+    const t = db.prepare(`SELECT blocked, failed_attempts FROM tasks WHERE id=?`).get(id) as any;
+    expect(t.failed_attempts).toBeGreaterThanOrEqual(MAX_FAILED_ATTEMPTS);
+    expect(t.blocked).toBe(1);
+  });
+
+  it('reclaim of a USER-claimed expired lease returns to new without counting a failure', () => {
+    const db = openDb(':memory:');
+    const t = addTask(db, { title: 'w' }, { type: 'user' });
+    const c = addCriterion(db, t.id, 'd', { type: 'user' });
+    setCriterionChecked(db, t.id, c.id, true, { type: 'user' });
+    claimTask(db, t.id, { type: 'user' }); // claimed_by='user'
+    db.prepare(`UPDATE tasks SET claim_expires = 1 WHERE id=?`).run(t.id);
+    reclaimExpired(db);
+    const row = db.prepare(`SELECT status, failed_attempts FROM tasks WHERE id=?`).get(t.id) as any;
+    expect(row.status).toBe('new');
+    expect(row.failed_attempts).toBe(0);
+  });
+
+  it('releaseClaim returns task to new and counts a failure', () => {
+    const db = openDb(':memory:');
+    const id = claimedExpired(db);
+    db.prepare(`UPDATE tasks SET claim_expires = ${2 ** 31} WHERE id=?`).run(id); // не истёк
+    releaseClaim(db, id, { type: 'ai', id: 'tick:1-0' }, 'spawn failed');
+    const t = db.prepare(`SELECT status, claimed_by, failed_attempts FROM tasks WHERE id=?`).get(id) as any;
+    expect(t.status).toBe('new');
+    expect(t.claimed_by).toBeNull();
+    expect(t.failed_attempts).toBe(1);
   });
 });

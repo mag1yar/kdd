@@ -104,6 +104,38 @@ MCP tools: `get_task`, `list_tasks`, `recall`, `update_task`. Creating,
 archiving, linking and deciding are intentionally CLI-only, so those stay with
 you.
 
+## Agent mode (experimental)
+
+kdd can drive ephemeral agent workers off the board. `kdd tick` is a thin dispatcher —
+it reclaims expired leases, claims ready tasks, and fire-and-forget spawns one worker per
+task up to a cap. It runs no LLM itself; schedule it from cron.
+
+```cron
+# every 2 minutes, dispatch workers for this repo
+*/2 * * * * cd /path/to/repo && kdd tick >> /tmp/kdd-tick.log 2>&1
+```
+
+**Config (env):**
+
+- `KDD_MAX_WORKERS` — max parallel workers (default 3)
+- `KDD_WORKER_TTL` — lease TTL for spawned workers, seconds (default 1800)
+- `KDD_SPAWN_CMD` — shell command to spawn a worker (default: a `claude -p` bootstrap)
+
+**Worker contract.** A spawned worker gets only `KDD_TASK_ID` + actor env — never the task body
+(pull-context). It must:
+
+1. `kdd show $KDD_TASK_ID` — read the task, criteria, links itself.
+2. Do the work in the repo (cwd is the repo root).
+3. Renew its lease periodically: `kdd claim $KDD_TASK_ID --renew`. If renew errors, the lease was
+   lost (reclaimed) — **stop immediately**; another worker owns the task.
+4. When done: check acceptance criteria (`kdd criteria check`), then `kdd move $KDD_TASK_ID review`.
+
+A task that fails to make progress (worker crashes, exits without moving to review, or spawn fails)
+is retried on the next tick; after 3 failed attempts it is auto-blocked for a human to inspect.
+
+> Ceiling: two overlapping workers doing raw `git commit` are not yet fenced at the git level
+> (only board mutations are). Rare under the default TTL + heartbeat; closed by worktree-per-lease.
+
 ## Where things live
 
 - **Store:** `~/.kdd/<repo-hash>/kdd.db` (override the root with `KDD_HOME`).

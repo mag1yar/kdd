@@ -121,6 +121,11 @@ export const MIGRATIONS: string[] = [
   ALTER TABLE tasks ADD COLUMN claimed_by TEXT;
   ALTER TABLE tasks ADD COLUMN claim_expires INTEGER;
   `,
+  `
+  -- driver-слайс: счётчик неудачных попыток агента (spawn-fail + непродуктивный reclaim).
+  -- reset при достижении review; при K попыток задача авто-блокируется. Старые задачи: 0.
+  ALTER TABLE tasks ADD COLUMN failed_attempts INTEGER NOT NULL DEFAULT 0;
+  `,
 ];
 
 export function openDb(dbPath: string, projectPath?: string): Database.Database {

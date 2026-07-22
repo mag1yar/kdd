@@ -154,6 +154,11 @@ var MIGRATIONS = [
   -- \u0418\u043D\u0432\u0430\u0440\u0438\u0430\u043D\u0442: claimed_by IS NOT NULL <=> status='in_progress'. \u0421\u0442\u0430\u0440\u044B\u0435 \u0437\u0430\u0434\u0430\u0447\u0438: NULL.
   ALTER TABLE tasks ADD COLUMN claimed_by TEXT;
   ALTER TABLE tasks ADD COLUMN claim_expires INTEGER;
+  `,
+  `
+  -- driver-\u0441\u043B\u0430\u0439\u0441: \u0441\u0447\u0451\u0442\u0447\u0438\u043A \u043D\u0435\u0443\u0434\u0430\u0447\u043D\u044B\u0445 \u043F\u043E\u043F\u044B\u0442\u043E\u043A \u0430\u0433\u0435\u043D\u0442\u0430 (spawn-fail + \u043D\u0435\u043F\u0440\u043E\u0434\u0443\u043A\u0442\u0438\u0432\u043D\u044B\u0439 reclaim).
+  -- reset \u043F\u0440\u0438 \u0434\u043E\u0441\u0442\u0438\u0436\u0435\u043D\u0438\u0438 review; \u043F\u0440\u0438 K \u043F\u043E\u043F\u044B\u0442\u043E\u043A \u0437\u0430\u0434\u0430\u0447\u0430 \u0430\u0432\u0442\u043E-\u0431\u043B\u043E\u043A\u0438\u0440\u0443\u0435\u0442\u0441\u044F. \u0421\u0442\u0430\u0440\u044B\u0435 \u0437\u0430\u0434\u0430\u0447\u0438: 0.
+  ALTER TABLE tasks ADD COLUMN failed_attempts INTEGER NOT NULL DEFAULT 0;
   `
 ];
 function openDb(dbPath, projectPath) {
@@ -219,6 +224,18 @@ function resolveDecisionsDir(cwd = process.cwd()) {
   }
   return join(top, ".planning", "decisions");
 }
+function resolveToplevel(cwd = process.cwd()) {
+  if (process.env.KDD_TOPLEVEL) return process.env.KDD_TOPLEVEL;
+  try {
+    return execFileSync(
+      "git",
+      ["rev-parse", "--show-toplevel"],
+      { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }
+    ).trim();
+  } catch {
+    throw new KddError("not in a git repository (kdd tick resolves worker cwd via git)");
+  }
+}
 function listProjects() {
   const home = kddHome();
   if (!existsSync(home)) return [];
@@ -248,10 +265,16 @@ var TRANSITIONS = {
   review: ["in_progress", "done"],
   done: ["review"]
 };
-function checkMove(from, to, actor, reason, openCriteria2 = 0) {
+function checkMove(from, to, actor, reason, openCriteria2 = 0, claimedBy = null) {
   if (from === to) return { ok: false, error: `task is already in ${to}` };
   if (actor.type === "user") return { ok: true };
   if (reason) return { ok: true };
+  if (from === "in_progress" && claimedBy?.startsWith("ai:") && claimedBy !== `ai:${actor.id ?? "?"}`) {
+    return {
+      ok: false,
+      error: `lease lost (held by ${claimedBy}); you no longer own this task \u2014 stop work`
+    };
+  }
   if (!TRANSITIONS[from].includes(to)) {
     return {
       ok: false,
@@ -425,11 +448,12 @@ function moveTask(db, id, to, actor, reason) {
   checkStatus(to);
   return db.transaction(() => {
     const t = mustGetTask(db, id);
-    const res = checkMove(t.status, to, actor, reason, openCriteria(db, id));
+    const res = checkMove(t.status, to, actor, reason, openCriteria(db, id), t.claimed_by);
     if (!res.ok) throw new KddError(res.error);
     const leaving = t.status === "in_progress" && to !== "in_progress";
+    const reset = to === "review";
     db.prepare(
-      `UPDATE tasks SET status = ?, position = ?, updated_at = ?${leaving ? ", claimed_by = NULL, claim_expires = NULL" : ""}
+      `UPDATE tasks SET status = ?, position = ?, updated_at = ?${leaving ? ", claimed_by = NULL, claim_expires = NULL" : ""}${reset ? ", failed_attempts = 0" : ""}
        WHERE id = ?`
     ).run(to, nextPosition(db, to), now(), id);
     appendEvent(
@@ -452,15 +476,16 @@ function placeTask(db, id, to, orderedIds, actor) {
   return db.transaction(() => {
     const t = mustGetTask(db, id);
     if (t.status !== to) {
-      const res = checkMove(t.status, to, actor, void 0, openCriteria(db, id));
+      const res = checkMove(t.status, to, actor, void 0, openCriteria(db, id), t.claimed_by);
       if (!res.ok) throw new KddError(res.error);
       appendEvent(db, id, actor, "moved", { from: t.status, to });
     }
     const setPos = db.prepare(`UPDATE tasks SET position = ? WHERE id = ?`);
     orderedIds.forEach((tid, i) => setPos.run(i, tid));
     const leaving = t.status === "in_progress" && to !== "in_progress";
+    const reset = to === "review";
     db.prepare(
-      `UPDATE tasks SET status = ?, updated_at = ?${leaving ? ", claimed_by = NULL, claim_expires = NULL" : ""}
+      `UPDATE tasks SET status = ?, updated_at = ?${leaving ? ", claimed_by = NULL, claim_expires = NULL" : ""}${reset ? ", failed_attempts = 0" : ""}
        WHERE id = ?`
     ).run(to, now(), id);
     return mustGetTask(db, id);
@@ -871,6 +896,31 @@ function exportBoard(db) {
 // src/claim.ts
 var DEFAULT_TTL = 15 * 60;
 var SYSTEM = { type: "ai", id: "system" };
+var MAX_FAILED_ATTEMPTS = 3;
+function recordFailedAttempt(db, id, actor, reason) {
+  db.prepare(`UPDATE tasks SET failed_attempts = failed_attempts + 1, updated_at = ? WHERE id = ?`).run(now(), id);
+  const fa = db.prepare(`SELECT failed_attempts FROM tasks WHERE id = ?`).get(id).failed_attempts;
+  if (fa >= MAX_FAILED_ATTEMPTS) {
+    db.prepare(`UPDATE tasks SET blocked = 1, block_reason = ?, updated_at = ? WHERE id = ?`).run(`${fa} failed attempts (agent driver): ${reason}`, now(), id);
+    appendEvent(
+      db,
+      id,
+      actor,
+      "blocked",
+      { reason: `${fa} failed attempts`, last: reason },
+      { type: "claim", level: "error" }
+    );
+  }
+}
+function releaseClaim(db, id, actor, reason) {
+  db.transaction(() => {
+    db.prepare(
+      `UPDATE tasks SET status='new', claimed_by=NULL, claim_expires=NULL, updated_at=? WHERE id=?`
+    ).run(now(), id);
+    appendEvent(db, id, actor, "released", { reason }, { type: "claim", level: "warn" });
+    recordFailedAttempt(db, id, actor, reason);
+  })();
+}
 function assertTtl(ttl) {
   if (!Number.isFinite(ttl) || ttl <= 0) throw new KddError(`invalid ttl '${ttl}' (seconds > 0)`);
 }
@@ -889,6 +939,9 @@ function reclaimExpired(db) {
   for (const e of expired) {
     clear.run(t, e.id);
     appendEvent(db, e.id, SYSTEM, "reclaimed", { former: e.claimed_by }, { type: "claim", level: "warn" });
+    if (e.claimed_by?.startsWith("ai:tick:")) {
+      recordFailedAttempt(db, e.id, SYSTEM, "lease expired without progress");
+    }
   }
   return expired.map((e) => e.id);
 }
@@ -923,10 +976,10 @@ function claimTask(db, id, actor, ttl = DEFAULT_TTL) {
     return { ok: true, task: mustGetTask(db, id) };
   })();
 }
-function claimNext(db, actor, ttl = DEFAULT_TTL) {
+function claimNext(db, actor, ttl = DEFAULT_TTL, opts = {}) {
   assertTtl(ttl);
   return db.transaction(() => {
-    reclaimExpired(db);
+    if (opts.reclaim !== false) reclaimExpired(db);
     const rows = db.prepare(
       `SELECT id FROM tasks WHERE ${CLAIMABLE_SQL} ORDER BY ${PRIORITY_ORDER}, created_at, id`
     ).all();
@@ -962,10 +1015,43 @@ function renewClaim(db, id, actor, ttl = DEFAULT_TTL) {
     return { ok: true, task: mustGetTask(db, id) };
   })();
 }
+
+// src/driver.ts
+function activeWorkers(db) {
+  return db.prepare(
+    `SELECT COUNT(*) c FROM tasks WHERE status='in_progress' AND claimed_by IS NOT NULL`
+  ).get().c;
+}
+function tick(db, opts) {
+  const reclaimed = db.transaction(() => reclaimExpired(db))().length;
+  let active = activeWorkers(db);
+  let spawned = 0;
+  const nonce = now();
+  while (active < opts.maxWorkers) {
+    const workerId = `tick:${nonce}-${spawned}`;
+    const t = claimNext(db, { type: "ai", id: workerId }, opts.ttl, { reclaim: false });
+    if (!t) break;
+    try {
+      opts.spawn(t.id, workerId, opts.projectDir);
+      active++;
+      spawned++;
+    } catch (e) {
+      releaseClaim(
+        db,
+        t.id,
+        { type: "ai", id: workerId },
+        `spawn failed: ${e instanceof Error ? e.message : String(e)}`
+      );
+      break;
+    }
+  }
+  return { reclaimed, spawned, active };
+}
 export {
   CAPS,
   DEFAULT_TTL,
   KddError,
+  MAX_FAILED_ATTEMPTS,
   MIGRATIONS,
   PRIORITIES,
   PRIORITY_ORDER,
@@ -1006,12 +1092,15 @@ export {
   rebuild,
   recall,
   reclaimExpired,
+  recordFailedAttempt,
+  releaseClaim,
   removeCriterion,
   renderDecisionBody,
   renderDecisionMd,
   renewClaim,
   resolveDbPath,
   resolveDecisionsDir,
+  resolveToplevel,
   sanitizeQuery,
   setCriterionChecked,
   slugify,
@@ -1019,6 +1108,7 @@ export {
   syncIndex,
   taskDetail,
   taskDetailCapped,
+  tick,
   unarchiveTask,
   unblockTask
 };

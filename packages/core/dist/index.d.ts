@@ -34,6 +34,7 @@ declare function resolveDbPath(cwd?: string): {
     projectPath: string;
 };
 declare function resolveDecisionsDir(cwd?: string): string;
+declare function resolveToplevel(cwd?: string): string;
 declare function listProjects(): {
     dbPath: string;
     projectPath: string;
@@ -48,7 +49,7 @@ type Actor = {
     id?: string;
 };
 declare const TRANSITIONS: Record<Status, Status[]>;
-declare function checkMove(from: Status, to: Status, actor: Actor, reason?: string, openCriteria?: number): {
+declare function checkMove(from: Status, to: Status, actor: Actor, reason?: string, openCriteria?: number, claimedBy?: string | null): {
     ok: true;
 } | {
     ok: false;
@@ -67,6 +68,7 @@ interface Task {
     track_id: number | null;
     claimed_by: string | null;
     claim_expires: number | null;
+    failed_attempts: number;
     position: number;
     archived_at: number | null;
     created_at: number;
@@ -259,6 +261,9 @@ declare function exportBoard(db: Database.Database): {
 };
 
 declare const DEFAULT_TTL: number;
+declare const MAX_FAILED_ATTEMPTS = 3;
+declare function recordFailedAttempt(db: Database.Database, id: number, actor: Actor, reason: string): void;
+declare function releaseClaim(db: Database.Database, id: number, actor: Actor, reason: string): void;
 declare function reclaimExpired(db: Database.Database): number[];
 declare function claimTask(db: Database.Database, id: number, actor: Actor, ttl?: number): {
     ok: true;
@@ -267,7 +272,9 @@ declare function claimTask(db: Database.Database, id: number, actor: Actor, ttl?
     ok: false;
     error: string;
 };
-declare function claimNext(db: Database.Database, actor: Actor, ttl?: number): Task | null;
+declare function claimNext(db: Database.Database, actor: Actor, ttl?: number, opts?: {
+    reclaim?: boolean;
+}): Task | null;
 declare function renewClaim(db: Database.Database, id: number, actor: Actor, ttl?: number): {
     ok: true;
     task: Task;
@@ -276,4 +283,17 @@ declare function renewClaim(db: Database.Database, id: number, actor: Actor, ttl
     error: string;
 };
 
-export { type Actor, CAPS, type Comment, type Criterion, DEFAULT_TTL, type DecisionInput, type EventRow, KddError, MIGRATIONS, PRIORITIES, PRIORITY_ORDER, type ParsedDecision, type Priority, type RecallHit, STATUSES, type Status, TRANSITIONS, type Task, type TaskDetailCapped, type TaskListRow, type Track, addCriterion, addDecision, addTask, appendEvent, archiveTask, authorOf, blockTask, boardData, capText, checkMove, claimNext, claimTask, commentTask, contentHash, createTrack, deleteTrack, editTask, editTrack, exportBoard, kddHome, linkTasks, listCriteria, listProjects, listTracks, logError, moveTask, mustGetTask, mustGetTrack, now, openDb, parseDecisionMd, placeTask, rebuild, recall, reclaimExpired, removeCriterion, renderDecisionBody, renderDecisionMd, renewClaim, resolveDbPath, resolveDecisionsDir, sanitizeQuery, setCriterionChecked, slugify, statusDigest, syncIndex, taskDetail, taskDetailCapped, unarchiveTask, unblockTask };
+interface TickResult {
+    reclaimed: number;
+    spawned: number;
+    active: number;
+}
+type SpawnFn = (taskId: number, workerId: string, projectDir: string) => void;
+declare function tick(db: Database.Database, opts: {
+    maxWorkers: number;
+    ttl: number;
+    projectDir: string;
+    spawn: SpawnFn;
+}): TickResult;
+
+export { type Actor, CAPS, type Comment, type Criterion, DEFAULT_TTL, type DecisionInput, type EventRow, KddError, MAX_FAILED_ATTEMPTS, MIGRATIONS, PRIORITIES, PRIORITY_ORDER, type ParsedDecision, type Priority, type RecallHit, STATUSES, type SpawnFn, type Status, TRANSITIONS, type Task, type TaskDetailCapped, type TaskListRow, type TickResult, type Track, addCriterion, addDecision, addTask, appendEvent, archiveTask, authorOf, blockTask, boardData, capText, checkMove, claimNext, claimTask, commentTask, contentHash, createTrack, deleteTrack, editTask, editTrack, exportBoard, kddHome, linkTasks, listCriteria, listProjects, listTracks, logError, moveTask, mustGetTask, mustGetTrack, now, openDb, parseDecisionMd, placeTask, rebuild, recall, reclaimExpired, recordFailedAttempt, releaseClaim, removeCriterion, renderDecisionBody, renderDecisionMd, renewClaim, resolveDbPath, resolveDecisionsDir, resolveToplevel, sanitizeQuery, setCriterionChecked, slugify, statusDigest, syncIndex, taskDetail, taskDetailCapped, tick, unarchiveTask, unblockTask };

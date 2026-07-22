@@ -1110,6 +1110,66 @@ function listAgentEvents(db, taskId, opts) {
     `SELECT * FROM agent_events WHERE task_id = ? AND id > ? ORDER BY id LIMIT ?`
   ).all(taskId, opts?.sinceId ?? 0, opts?.limit ?? 500);
 }
+
+// src/worktree.ts
+import { execFileSync as execFileSync2 } from "child_process";
+import { existsSync as existsSync4, realpathSync, rmSync } from "fs";
+import { dirname as dirname2, join as join4 } from "path";
+var branchName = (taskId) => `kdd/task-${taskId}`;
+function git(repoRoot, args) {
+  return execFileSync2("git", args, {
+    cwd: repoRoot,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "ignore"]
+  }).trim();
+}
+function gitTry(repoRoot, args) {
+  try {
+    git(repoRoot, args);
+  } catch {
+  }
+}
+function worktreePath(dbPath, taskId, title) {
+  const root = dirname2(dbPath);
+  const realRoot = existsSync4(root) ? realpathSync(root) : root;
+  return join4(realRoot, "worktrees", `task-${taskId}-${slugify(title)}`);
+}
+function listWorktrees(repoRoot) {
+  const out = git(repoRoot, ["worktree", "list", "--porcelain"]);
+  const entries = [];
+  let cur = null;
+  for (const line of out.split("\n")) {
+    if (line.startsWith("worktree ")) {
+      if (cur) entries.push(cur);
+      cur = { path: line.slice(9), branch: null };
+    } else if (line.startsWith("branch ") && cur) {
+      cur.branch = line.slice(7);
+    }
+  }
+  if (cur) entries.push(cur);
+  return entries;
+}
+function branchExists(repoRoot, branch) {
+  try {
+    git(repoRoot, ["show-ref", "--verify", "--quiet", `refs/heads/${branch}`]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+function ensureWorktree(repoRoot, dbPath, taskId, title) {
+  const branch = branchName(taskId);
+  const ref = `refs/heads/${branch}`;
+  const existing = listWorktrees(repoRoot).find((e) => e.branch === ref);
+  if (existing && existsSync4(existing.path)) return existing.path;
+  if (existing) gitTry(repoRoot, ["worktree", "remove", "--force", existing.path]);
+  const path = worktreePath(dbPath, taskId, title);
+  gitTry(repoRoot, ["worktree", "prune"]);
+  rmSync(path, { recursive: true, force: true });
+  const tail = branchExists(repoRoot, branch) ? [path, branch] : [path, "-b", branch];
+  git(repoRoot, ["worktree", "add", ...tail]);
+  return path;
+}
 export {
   CAPS,
   DEFAULT_TTL,
@@ -1139,6 +1199,7 @@ export {
   deleteTrack,
   editTask,
   editTrack,
+  ensureWorktree,
   exportBoard,
   kddHome,
   linkTasks,
@@ -1176,5 +1237,6 @@ export {
   taskDetailCapped,
   tick,
   unarchiveTask,
-  unblockTask
+  unblockTask,
+  worktreePath
 };

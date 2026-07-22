@@ -115,6 +115,12 @@ export const MIGRATIONS: string[] = [
   ALTER TABLE events ADD COLUMN type TEXT;
   ALTER TABLE events ADD COLUMN level TEXT NOT NULL DEFAULT 'info';
   `,
+  `
+  -- claim-протокол: агент берёт задачу атомарно (CAS), lease с TTL.
+  -- Инвариант: claimed_by IS NOT NULL <=> status='in_progress'. Старые задачи: NULL.
+  ALTER TABLE tasks ADD COLUMN claimed_by TEXT;
+  ALTER TABLE tasks ADD COLUMN claim_expires INTEGER;
+  `,
 ];
 
 export function openDb(dbPath: string, projectPath?: string): Database.Database {

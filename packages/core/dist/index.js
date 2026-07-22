@@ -148,6 +148,12 @@ var MIGRATIONS = [
   ALTER TABLE events ADD COLUMN parent_id INTEGER REFERENCES events(id);
   ALTER TABLE events ADD COLUMN type TEXT;
   ALTER TABLE events ADD COLUMN level TEXT NOT NULL DEFAULT 'info';
+  `,
+  `
+  -- claim-\u043F\u0440\u043E\u0442\u043E\u043A\u043E\u043B: \u0430\u0433\u0435\u043D\u0442 \u0431\u0435\u0440\u0451\u0442 \u0437\u0430\u0434\u0430\u0447\u0443 \u0430\u0442\u043E\u043C\u0430\u0440\u043D\u043E (CAS), lease \u0441 TTL.
+  -- \u0418\u043D\u0432\u0430\u0440\u0438\u0430\u043D\u0442: claimed_by IS NOT NULL <=> status='in_progress'. \u0421\u0442\u0430\u0440\u044B\u0435 \u0437\u0430\u0434\u0430\u0447\u0438: NULL.
+  ALTER TABLE tasks ADD COLUMN claimed_by TEXT;
+  ALTER TABLE tasks ADD COLUMN claim_expires INTEGER;
   `
 ];
 function openDb(dbPath, projectPath) {
@@ -421,7 +427,11 @@ function moveTask(db, id, to, actor, reason) {
     const t = mustGetTask(db, id);
     const res = checkMove(t.status, to, actor, reason, openCriteria(db, id));
     if (!res.ok) throw new KddError(res.error);
-    db.prepare(`UPDATE tasks SET status = ?, position = ?, updated_at = ? WHERE id = ?`).run(to, nextPosition(db, to), now(), id);
+    const leaving = t.status === "in_progress" && to !== "in_progress";
+    db.prepare(
+      `UPDATE tasks SET status = ?, position = ?, updated_at = ?${leaving ? ", claimed_by = NULL, claim_expires = NULL" : ""}
+       WHERE id = ?`
+    ).run(to, nextPosition(db, to), now(), id);
     appendEvent(
       db,
       id,
@@ -448,7 +458,11 @@ function placeTask(db, id, to, orderedIds, actor) {
     }
     const setPos = db.prepare(`UPDATE tasks SET position = ? WHERE id = ?`);
     orderedIds.forEach((tid, i) => setPos.run(i, tid));
-    db.prepare(`UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?`).run(to, now(), id);
+    const leaving = t.status === "in_progress" && to !== "in_progress";
+    db.prepare(
+      `UPDATE tasks SET status = ?, updated_at = ?${leaving ? ", claimed_by = NULL, claim_expires = NULL" : ""}
+       WHERE id = ?`
+    ).run(to, now(), id);
     return mustGetTask(db, id);
   })();
 }
@@ -853,11 +867,108 @@ function exportBoard(db) {
     events: db.prepare(`SELECT * FROM events ORDER BY id`).all()
   };
 }
+
+// src/claim.ts
+var DEFAULT_TTL = 15 * 60;
+var SYSTEM = { type: "ai", id: "system" };
+function assertTtl(ttl) {
+  if (!Number.isFinite(ttl) || ttl <= 0) throw new KddError(`invalid ttl '${ttl}' (seconds > 0)`);
+}
+var CLAIMABLE_SQL = `status = 'new' AND blocked = 0 AND archived_at IS NULL AND claimed_by IS NULL
+   AND (SELECT COUNT(*) FROM criteria WHERE criteria.task_id = tasks.id) > 0`;
+var criteriaCount = (db, id) => db.prepare(`SELECT COUNT(*) c FROM criteria WHERE task_id = ?`).get(id).c;
+function reclaimExpired(db) {
+  const t = now();
+  const expired = db.prepare(
+    `SELECT id, claimed_by FROM tasks
+     WHERE status = 'in_progress' AND claim_expires IS NOT NULL AND claim_expires < ?`
+  ).all(t);
+  const clear = db.prepare(
+    `UPDATE tasks SET status='new', claimed_by=NULL, claim_expires=NULL, updated_at=? WHERE id=?`
+  );
+  for (const e of expired) {
+    clear.run(t, e.id);
+    appendEvent(db, e.id, SYSTEM, "reclaimed", { former: e.claimed_by }, { type: "claim", level: "warn" });
+  }
+  return expired.map((e) => e.id);
+}
+function claimTask(db, id, actor, ttl = DEFAULT_TTL) {
+  assertTtl(ttl);
+  return db.transaction(() => {
+    reclaimExpired(db);
+    const t = mustGetTask(db, id);
+    if (criteriaCount(db, id) === 0) {
+      appendEvent(
+        db,
+        id,
+        actor,
+        "claim_rejected",
+        { reason: "no acceptance criteria" },
+        { type: "claim", level: "warn" }
+      );
+      return { ok: false, error: `cannot claim #${id}: no acceptance criteria (define done first)` };
+    }
+    const expires = now() + ttl;
+    const r = db.prepare(
+      `UPDATE tasks SET status='in_progress', claimed_by=?, claim_expires=?, updated_at=?
+       WHERE id=? AND status='new' AND blocked=0 AND archived_at IS NULL AND claimed_by IS NULL`
+    ).run(authorOf(actor), expires, now(), id);
+    if (r.changes !== 1) {
+      return {
+        ok: false,
+        error: `#${id} is not claimable (status ${t.status}${t.claimed_by ? `, held by ${t.claimed_by}` : ""})`
+      };
+    }
+    appendEvent(db, id, actor, "claimed", { ttl, expires }, { type: "claim" });
+    return { ok: true, task: mustGetTask(db, id) };
+  })();
+}
+function claimNext(db, actor, ttl = DEFAULT_TTL) {
+  assertTtl(ttl);
+  return db.transaction(() => {
+    reclaimExpired(db);
+    const rows = db.prepare(
+      `SELECT id FROM tasks WHERE ${CLAIMABLE_SQL} ORDER BY ${PRIORITY_ORDER}, created_at, id`
+    ).all();
+    for (const { id } of rows) {
+      const expires = now() + ttl;
+      const r = db.prepare(
+        `UPDATE tasks SET status='in_progress', claimed_by=?, claim_expires=?, updated_at=?
+         WHERE id=? AND status='new' AND blocked=0 AND archived_at IS NULL AND claimed_by IS NULL`
+      ).run(authorOf(actor), expires, now(), id);
+      if (r.changes === 1) {
+        appendEvent(db, id, actor, "claimed", { ttl, expires }, { type: "claim" });
+        return mustGetTask(db, id);
+      }
+    }
+    return null;
+  })();
+}
+function renewClaim(db, id, actor, ttl = DEFAULT_TTL) {
+  assertTtl(ttl);
+  return db.transaction(() => {
+    mustGetTask(db, id);
+    const expires = now() + ttl;
+    const r = db.prepare(
+      `UPDATE tasks SET claim_expires=?, updated_at=? WHERE id=? AND claimed_by=?`
+    ).run(expires, now(), id, authorOf(actor));
+    if (r.changes !== 1) {
+      return {
+        ok: false,
+        error: `#${id} not held by ${authorOf(actor)} (lease lost or reclaimed) \u2014 stop work`
+      };
+    }
+    appendEvent(db, id, actor, "claim_renewed", { ttl, expires }, { type: "claim" });
+    return { ok: true, task: mustGetTask(db, id) };
+  })();
+}
 export {
   CAPS,
+  DEFAULT_TTL,
   KddError,
   MIGRATIONS,
   PRIORITIES,
+  PRIORITY_ORDER,
   STATUSES,
   TRANSITIONS,
   addCriterion,
@@ -870,6 +981,8 @@ export {
   boardData,
   capText,
   checkMove,
+  claimNext,
+  claimTask,
   commentTask,
   contentHash,
   createTrack,
@@ -892,9 +1005,11 @@ export {
   placeTask,
   rebuild,
   recall,
+  reclaimExpired,
   removeCriterion,
   renderDecisionBody,
   renderDecisionMd,
+  renewClaim,
   resolveDbPath,
   resolveDecisionsDir,
   sanitizeQuery,

@@ -65,6 +65,8 @@ interface Task {
     priority: Priority;
     area: string | null;
     track_id: number | null;
+    claimed_by: string | null;
+    claim_expires: number | null;
     position: number;
     archived_at: number | null;
     created_at: number;
@@ -210,6 +212,7 @@ declare function rebuild(db: Database.Database, decisionsDir: string): {
     tasks: number;
 };
 
+declare const PRIORITY_ORDER = "CASE priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END";
 declare function boardData(db: Database.Database, f?: {
     area?: string;
     status?: Status;
@@ -255,4 +258,22 @@ declare function exportBoard(db: Database.Database): {
     events: EventRow[];
 };
 
-export { type Actor, CAPS, type Comment, type Criterion, type DecisionInput, type EventRow, KddError, MIGRATIONS, PRIORITIES, type ParsedDecision, type Priority, type RecallHit, STATUSES, type Status, TRANSITIONS, type Task, type TaskDetailCapped, type TaskListRow, type Track, addCriterion, addDecision, addTask, appendEvent, archiveTask, authorOf, blockTask, boardData, capText, checkMove, commentTask, contentHash, createTrack, deleteTrack, editTask, editTrack, exportBoard, kddHome, linkTasks, listCriteria, listProjects, listTracks, logError, moveTask, mustGetTask, mustGetTrack, now, openDb, parseDecisionMd, placeTask, rebuild, recall, removeCriterion, renderDecisionBody, renderDecisionMd, resolveDbPath, resolveDecisionsDir, sanitizeQuery, setCriterionChecked, slugify, statusDigest, syncIndex, taskDetail, taskDetailCapped, unarchiveTask, unblockTask };
+declare const DEFAULT_TTL: number;
+declare function reclaimExpired(db: Database.Database): number[];
+declare function claimTask(db: Database.Database, id: number, actor: Actor, ttl?: number): {
+    ok: true;
+    task: Task;
+} | {
+    ok: false;
+    error: string;
+};
+declare function claimNext(db: Database.Database, actor: Actor, ttl?: number): Task | null;
+declare function renewClaim(db: Database.Database, id: number, actor: Actor, ttl?: number): {
+    ok: true;
+    task: Task;
+} | {
+    ok: false;
+    error: string;
+};
+
+export { type Actor, CAPS, type Comment, type Criterion, DEFAULT_TTL, type DecisionInput, type EventRow, KddError, MIGRATIONS, PRIORITIES, PRIORITY_ORDER, type ParsedDecision, type Priority, type RecallHit, STATUSES, type Status, TRANSITIONS, type Task, type TaskDetailCapped, type TaskListRow, type Track, addCriterion, addDecision, addTask, appendEvent, archiveTask, authorOf, blockTask, boardData, capText, checkMove, claimNext, claimTask, commentTask, contentHash, createTrack, deleteTrack, editTask, editTrack, exportBoard, kddHome, linkTasks, listCriteria, listProjects, listTracks, logError, moveTask, mustGetTask, mustGetTrack, now, openDb, parseDecisionMd, placeTask, rebuild, recall, reclaimExpired, removeCriterion, renderDecisionBody, renderDecisionMd, renewClaim, resolveDbPath, resolveDecisionsDir, sanitizeQuery, setCriterionChecked, slugify, statusDigest, syncIndex, taskDetail, taskDetailCapped, unarchiveTask, unblockTask };

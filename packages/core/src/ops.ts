@@ -130,8 +130,11 @@ export function moveTask(
     const t = mustGetTask(db, id);
     const res = checkMove(t.status, to, actor, reason, openCriteria(db, id));
     if (!res.ok) throw new KddError(res.error);
-    db.prepare(`UPDATE tasks SET status = ?, position = ?, updated_at = ? WHERE id = ?`)
-      .run(to, nextPosition(db, to), now(), id); // CLI-move дописывает в конец колонки
+    const leaving = t.status === 'in_progress' && to !== 'in_progress';
+    db.prepare(
+      `UPDATE tasks SET status = ?, position = ?, updated_at = ?${leaving ? ', claimed_by = NULL, claim_expires = NULL' : ''}
+       WHERE id = ?`,
+    ).run(to, nextPosition(db, to), now(), id); // CLI-move дописывает в конец колонки; выход из in_progress снимает claim
     appendEvent(db, id, actor, 'moved',
       reason ? { from: t.status, to, reason } : { from: t.status, to });
     if (reason) {
@@ -158,8 +161,11 @@ export function placeTask(
     }
     const setPos = db.prepare(`UPDATE tasks SET position = ? WHERE id = ?`);
     orderedIds.forEach((tid, i) => setPos.run(i, tid));
-    db.prepare(`UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?`)
-      .run(to, now(), id);
+    const leaving = t.status === 'in_progress' && to !== 'in_progress';
+    db.prepare(
+      `UPDATE tasks SET status = ?, updated_at = ?${leaving ? ', claimed_by = NULL, claim_expires = NULL' : ''}
+       WHERE id = ?`,
+    ).run(to, now(), id);
     return mustGetTask(db, id);
   })();
 }

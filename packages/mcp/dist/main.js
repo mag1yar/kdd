@@ -21252,6 +21252,12 @@ var MIGRATIONS = [
   ALTER TABLE events ADD COLUMN parent_id INTEGER REFERENCES events(id);
   ALTER TABLE events ADD COLUMN type TEXT;
   ALTER TABLE events ADD COLUMN level TEXT NOT NULL DEFAULT 'info';
+  `,
+  `
+  -- claim-\u043F\u0440\u043E\u0442\u043E\u043A\u043E\u043B: \u0430\u0433\u0435\u043D\u0442 \u0431\u0435\u0440\u0451\u0442 \u0437\u0430\u0434\u0430\u0447\u0443 \u0430\u0442\u043E\u043C\u0430\u0440\u043D\u043E (CAS), lease \u0441 TTL.
+  -- \u0418\u043D\u0432\u0430\u0440\u0438\u0430\u043D\u0442: claimed_by IS NOT NULL <=> status='in_progress'. \u0421\u0442\u0430\u0440\u044B\u0435 \u0437\u0430\u0434\u0430\u0447\u0438: NULL.
+  ALTER TABLE tasks ADD COLUMN claimed_by TEXT;
+  ALTER TABLE tasks ADD COLUMN claim_expires INTEGER;
   `
 ];
 function openDb(dbPath, projectPath) {
@@ -21424,7 +21430,11 @@ function moveTask(db, id, to, actor, reason) {
     const t = mustGetTask(db, id);
     const res = checkMove(t.status, to, actor, reason, openCriteria(db, id));
     if (!res.ok) throw new KddError(res.error);
-    db.prepare(`UPDATE tasks SET status = ?, position = ?, updated_at = ? WHERE id = ?`).run(to, nextPosition(db, to), now(), id);
+    const leaving = t.status === "in_progress" && to !== "in_progress";
+    db.prepare(
+      `UPDATE tasks SET status = ?, position = ?, updated_at = ?${leaving ? ", claimed_by = NULL, claim_expires = NULL" : ""}
+       WHERE id = ?`
+    ).run(to, nextPosition(db, to), now(), id);
     appendEvent(
       db,
       id,
@@ -21629,6 +21639,7 @@ function taskDetailCapped(db, id) {
     links: d.links
   };
 }
+var DEFAULT_TTL = 15 * 60;
 
 // src/handlers.ts
 function getTask(db, id, full = false) {

@@ -4,6 +4,12 @@ import {
   type TaskDetailCapped, type Track,
 } from '@kddkit/core';
 
+// «#5 claimed by ai:s1 (expires in 14m)» — human-строка после claim/renew.
+export function renderClaim(t: Task, verb: 'claimed' | 'renewed'): string {
+  const left = t.claim_expires ? Math.max(0, Math.round((t.claim_expires - now()) / 60)) : 0;
+  return `#${t.id} ${verb} by ${t.claimed_by ?? '?'} (expires in ${left}m)`;
+}
+
 export function renderAge(epoch: number): string {
   const d = now() - epoch;
   if (d < 3600) return `${Math.max(1, Math.floor(d / 60))}m`;

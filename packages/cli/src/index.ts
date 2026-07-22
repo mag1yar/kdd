@@ -3,16 +3,16 @@ import { Command } from 'commander';
 import { readFileSync } from 'node:fs';
 import { basename, dirname } from 'node:path';
 import {
-  KddError, addCriterion, addDecision, addTask, archiveTask, blockTask, boardData, commentTask,
-  createTrack, deleteTrack, editTask, editTrack, exportBoard, linkTasks, listCriteria,
-  listProjects, listTracks, moveTask, openDb, rebuild, recall, removeCriterion, resolveDbPath,
-  resolveDecisionsDir, setCriterionChecked, statusDigest,
-  taskDetail, taskDetailCapped, unarchiveTask, unblockTask, type Status,
+  KddError, addCriterion, addDecision, addTask, archiveTask, blockTask, boardData, claimNext,
+  claimTask, commentTask, createTrack, deleteTrack, DEFAULT_TTL, editTask, editTrack, exportBoard,
+  linkTasks, listCriteria, listProjects, listTracks, moveTask, openDb, rebuild, recall,
+  removeCriterion, renewClaim, resolveDbPath, resolveDecisionsDir, setCriterionChecked,
+  statusDigest, taskDetail, taskDetailCapped, unarchiveTask, unblockTask, type Status,
 } from '@kddkit/core';
 import { projectPool, startUi } from '@kddkit/ui';
 import { fail, getActor, parseId, withDb } from './context.js';
 import {
-  renderBoard, renderCriteria, renderRecall, renderShow, renderStatus, renderTracks,
+  renderBoard, renderClaim, renderCriteria, renderRecall, renderShow, renderStatus, renderTracks,
 } from './render.js';
 
 const program = new Command()
@@ -102,6 +102,28 @@ program.command('move')
   .action((id, status, o) => run(o.json, () => {
     const t = withDb((db) => moveTask(db, parseId(id), status, getActor(), o.reason));
     out(o.json, t, () => `#${t.id} → ${t.status}`);
+  }));
+
+program.command('claim')
+  .argument('[id]', 'task id to claim; omit when using --next')
+  .option('--next', 'claim the top ready task from the queue')
+  .option('--renew', 'renew the lease on a task you already hold')
+  .option('--ttl <seconds>', 'lease length in seconds', String(DEFAULT_TTL))
+  .option('--json')
+  .action((id, o) => run(o.json, () => {
+    const ttl = Number(o.ttl); // NaN на невалидном вводе -> core (assertTtl) отклонит
+    const actor = getActor();
+    if (o.next) { // --next: null = очередь пуста, не ошибка (exit 0 для driver-петли)
+      const t = withDb((db) => claimNext(db, actor, ttl));
+      if (!t) { out(o.json, { task: null }, () => 'no ready task'); return; }
+      out(o.json, t, () => renderClaim(t, 'claimed'));
+      return;
+    }
+    if (!id) throw new KddError('give a task id or use --next');
+    const res = withDb((db) =>
+      o.renew ? renewClaim(db, parseId(id), actor, ttl) : claimTask(db, parseId(id), actor, ttl));
+    if (!res.ok) { fail(res.error, o.json); return; }
+    out(o.json, res.task, () => renderClaim(res.task, o.renew ? 'renewed' : 'claimed'));
   }));
 
 program.command('edit')

@@ -12,9 +12,12 @@ import {
   archiveTask,
   blockTask,
   boardData,
+  claimNext,
+  claimTask,
   commentTask,
   createTrack,
   deleteTrack,
+  DEFAULT_TTL,
   editTask,
   editTrack,
   exportBoard,
@@ -27,6 +30,7 @@ import {
   rebuild,
   recall,
   removeCriterion,
+  renewClaim,
   resolveDbPath as resolveDbPath2,
   resolveDecisionsDir,
   setCriterionChecked,
@@ -70,6 +74,10 @@ import {
   capText as cap,
   now
 } from "@kddkit/core";
+function renderClaim(t, verb) {
+  const left = t.claim_expires ? Math.max(0, Math.round((t.claim_expires - now()) / 60)) : 0;
+  return `#${t.id} ${verb} by ${t.claimed_by ?? "?"} (expires in ${left}m)`;
+}
 function renderAge(epoch) {
   const d = now() - epoch;
   if (d < 3600) return `${Math.max(1, Math.floor(d / 60))}m`;
@@ -241,6 +249,26 @@ program.command("show").argument("<id>").option("--json").action((id, o) => run(
 program.command("move").argument("<id>").argument("<status>").option("--reason <text>", "why the transition skips the matrix (ai)").option("--json").action((id, status, o) => run(o.json, () => {
   const t = withDb((db) => moveTask(db, parseId(id), status, getActor(), o.reason));
   out(o.json, t, () => `#${t.id} \u2192 ${t.status}`);
+}));
+program.command("claim").argument("[id]", "task id to claim; omit when using --next").option("--next", "claim the top ready task from the queue").option("--renew", "renew the lease on a task you already hold").option("--ttl <seconds>", "lease length in seconds", String(DEFAULT_TTL)).option("--json").action((id, o) => run(o.json, () => {
+  const ttl = Number(o.ttl);
+  const actor = getActor();
+  if (o.next) {
+    const t = withDb((db) => claimNext(db, actor, ttl));
+    if (!t) {
+      out(o.json, { task: null }, () => "no ready task");
+      return;
+    }
+    out(o.json, t, () => renderClaim(t, "claimed"));
+    return;
+  }
+  if (!id) throw new KddError2("give a task id or use --next");
+  const res = withDb((db) => o.renew ? renewClaim(db, parseId(id), actor, ttl) : claimTask(db, parseId(id), actor, ttl));
+  if (!res.ok) {
+    fail(res.error, o.json);
+    return;
+  }
+  out(o.json, res.task, () => renderClaim(res.task, o.renew ? "renewed" : "claimed"));
 }));
 program.command("edit").argument("<id>").option("--title <t>").option("--body <md>").option("--body-file <path>").option("--priority <p>").option("--area <a>").option("--track <id>", 'track id, or "none" to detach').option("--json").action((id, o) => run(o.json, () => {
   const track_id = o.track === void 0 ? void 0 : o.track === "none" ? null : parseId(o.track);

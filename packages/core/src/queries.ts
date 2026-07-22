@@ -5,7 +5,7 @@ import type { Comment, Criterion, EventRow, Task, TaskListRow } from './types.js
 import { mustGetTask } from './ops.js';
 import { listCriteria } from './criteria.js';
 
-const PRIORITY_ORDER =
+export const PRIORITY_ORDER =
   `CASE priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END`;
 
 // takeable «прямо сейчас»: new-очередь, не заблокирована, не в архиве.

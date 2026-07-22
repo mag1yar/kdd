@@ -10,3 +10,4 @@ export * from './tracks.js';
 export * from './decisions.js';
 export * from './recall.js';
 export * from './queries.js';
+export * from './claim.js';

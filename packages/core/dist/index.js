@@ -1116,6 +1116,7 @@ import { execFileSync as execFileSync2 } from "child_process";
 import { existsSync as existsSync4, realpathSync, rmSync } from "fs";
 import { dirname as dirname2, join as join4 } from "path";
 var branchName = (taskId) => `kdd/task-${taskId}`;
+var BRANCH_RE = /^refs\/heads\/kdd\/task-(\d+)$/;
 function git(repoRoot, args) {
   return execFileSync2("git", args, {
     cwd: repoRoot,
@@ -1169,6 +1170,20 @@ function ensureWorktree(repoRoot, dbPath, taskId, title) {
   const tail = branchExists(repoRoot, branch) ? [path, branch] : [path, "-b", branch];
   git(repoRoot, ["worktree", "add", ...tail]);
   return path;
+}
+function sweepWorktrees(db, repoRoot) {
+  const stmt = db.prepare(`SELECT status FROM tasks WHERE id = ?`);
+  let removed = 0;
+  for (const e of listWorktrees(repoRoot)) {
+    const m = e.branch?.match(BRANCH_RE);
+    if (!m) continue;
+    const row = stmt.get(Number(m[1]));
+    if (row?.status === "in_progress") continue;
+    gitTry(repoRoot, ["worktree", "remove", "--force", e.path]);
+    removed++;
+  }
+  if (removed) gitTry(repoRoot, ["worktree", "prune"]);
+  return removed;
 }
 export {
   CAPS,
@@ -1232,6 +1247,7 @@ export {
   setCriterionChecked,
   slugify,
   statusDigest,
+  sweepWorktrees,
   syncIndex,
   taskDetail,
   taskDetailCapped,

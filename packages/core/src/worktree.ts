@@ -1,9 +1,11 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, realpathSync, rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import type Database from 'better-sqlite3';
 import { slugify } from './decisions.js';
 
 const branchName = (taskId: number): string => `kdd/task-${taskId}`;
+const BRANCH_RE = /^refs\/heads\/kdd\/task-(\d+)$/;
 
 // git в repoRoot; бросает при ненулевом коде.
 function git(repoRoot: string, args: string[]): string {
@@ -64,4 +66,21 @@ export function ensureWorktree(
   const tail = branchExists(repoRoot, branch) ? [path, branch] : [path, '-b', branch];
   git(repoRoot, ['worktree', 'add', ...tail]);
   return path;
+}
+
+// Рипер: снести kdd-worktree, чья задача НЕ in_progress. Ветку оставить (работа в коммитах). → число снесённых.
+// DB-driven: tasks.status и есть tombstone. Зовётся из `kdd tick` после reclaimExpired.
+export function sweepWorktrees(db: Database.Database, repoRoot: string): number {
+  const stmt = db.prepare(`SELECT status FROM tasks WHERE id = ?`);
+  let removed = 0;
+  for (const e of listWorktrees(repoRoot)) {
+    const m = e.branch?.match(BRANCH_RE);
+    if (!m) continue; // чужой worktree или main — не наша забота
+    const row = stmt.get(Number(m[1])) as { status: string } | undefined;
+    if (row?.status === 'in_progress') continue; // активная задача — worktree жив
+    gitTry(repoRoot, ['worktree', 'remove', '--force', e.path]);
+    removed++;
+  }
+  if (removed) gitTry(repoRoot, ['worktree', 'prune']);
+  return removed;
 }

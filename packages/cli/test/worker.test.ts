@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { chmodSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -17,7 +18,13 @@ process.exit(${exit});
 function repo() {
   const env = makeEnv();
   const dir = dirname(env.KDD_DB as string);
-  env.KDD_TOPLEVEL = dir; // worker зовёт resolveToplevel — избегаем git-репо в temp
+  // настоящий git-репо: worker.ensureWorktree делает `git worktree add`.
+  // worktree ложатся в dir/worktrees/ (store-корень = dirname(KDD_DB) = dir) — как в проде (~/.kdd/<hash>/).
+  execFileSync('git', ['init', '-q'], { cwd: dir });
+  execFileSync('git', ['-C', dir, 'config', 'user.email', 't@t']);
+  execFileSync('git', ['-C', dir, 'config', 'user.name', 't']);
+  execFileSync('git', ['-C', dir, 'commit', '--allow-empty', '-qm', 'root']);
+  env.KDD_TOPLEVEL = dir;
   return { env, dir };
 }
 
@@ -91,5 +98,21 @@ describe('kdd worker', () => {
     const { code, stderr } = kddFail(env, 'worker', '999');
     expect(code).not.toBe(0);
     expect(stderr).toMatch(/(^|\n)error:/);
+  });
+
+  it('runs claude in the per-task worktree (cwd = worktrees/task-<id>-*), not toplevel', () => {
+    const { env, dir } = repo();
+    kdd(env, 'add', 'wt task'); // task #1
+    const p = join(dir, 'stub-cwd.mjs');
+    writeFileSync(p, `#!/usr/bin/env node
+console.log(JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: process.cwd() }] } }));
+process.exit(0);
+`);
+    chmodSync(p, 0o755);
+    kdd({ ...env, KDD_CLAUDE_CMD: `node ${p}` }, 'worker', '1');
+    const feed = JSON.parse(kdd(env, 'feed', '1', '--json'));
+    const childCwd = JSON.parse(feed.find((e: any) => e.kind === 'text').detail).text;
+    expect(childCwd).toContain(join('worktrees', 'task-1-'));
+    expect(childCwd).not.toBe(dir); // не корень репо/стора
   });
 });

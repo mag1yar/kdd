@@ -8,10 +8,10 @@ import lockfile from 'proper-lockfile';
 import {
   KddError, addCriterion, addDecision, addTask, appendAgentEvent, archiveTask, blockTask,
   boardData, claimNext, claimTask, commentTask, createTrack, deleteTrack, DEFAULT_TTL, editTask,
-  editTrack, exportBoard, linkTasks, listAgentEvents, listCriteria, listProjects, listTracks,
-  moveTask, mustGetTask, openDb, parseClaudeStreamLine, rebuild, recall, removeCriterion, renewClaim,
-  resolveDbPath, resolveDecisionsDir, resolveToplevel, setCriterionChecked, statusDigest,
-  taskDetail, taskDetailCapped, tick, unarchiveTask, unblockTask, type Status,
+  editTrack, ensureWorktree, exportBoard, linkTasks, listAgentEvents, listCriteria, listProjects,
+  listTracks, moveTask, mustGetTask, openDb, parseClaudeStreamLine, rebuild, recall, removeCriterion,
+  renewClaim, resolveDbPath, resolveDecisionsDir, resolveToplevel, setCriterionChecked, statusDigest,
+  sweepWorktrees, taskDetail, taskDetailCapped, tick, unarchiveTask, unblockTask, type Status,
 } from '@kddkit/core';
 import { projectPool, startUi } from '@kddkit/ui';
 import { fail, getActor, parseId, withDb, withDbAt } from './context.js';
@@ -179,9 +179,15 @@ program.command('tick')
     }
     try {
       const toplevel = resolveToplevel();
-      const r = withDbAt(dbPath, projectPath,
-        (db) => tick(db, { maxWorkers, ttl, projectDir: toplevel, spawn: spawnWorker }));
-      out(o.json, r, () => `tick: reclaimed ${r.reclaimed}, spawned ${r.spawned}, active ${r.active}`);
+      const r = withDbAt(dbPath, projectPath, (db) => {
+        const t = tick(db, { maxWorkers, ttl, projectDir: toplevel, spawn: spawnWorker });
+        // sweep ПОСЛЕ claim-loop: re-claimed задача уже in_progress → её worktree не тронут;
+        // истинно брошенная (reclaim без re-claim) → status 'new' → worktree снесён.
+        const reaped = sweepWorktrees(db, toplevel);
+        return { ...t, reaped };
+      });
+      out(o.json, r, () =>
+        `tick: reclaimed ${r.reclaimed}, spawned ${r.spawned}, active ${r.active}, reaped ${r.reaped}`);
     } finally {
       release();
     }
@@ -207,12 +213,15 @@ program.command('worker')
       // Один db-handle на всю команду: resolveDbPath (шеллится в git rev-parse) и openDb — по разу,
       // не дважды (раньше mustGetTask шёл через отдельный withDb, N воркеров от tick = N лишних git-вызовов).
       db = openDb(dbPath, projectPath);
-      mustGetTask(db, taskId); // KddError, если задачи нет — ловим ниже, ДО run_start
+      const task = mustGetTask(db, taskId); // KddError, если задачи нет — ловим ниже, ДО run_start
+      // изоляция: воркер бежит в своём worktree (ветка kdd/task-<id>), не в общем toplevel —
+      // параллельные воркеры не затирают файлы друг друга. Idempotent: reuse если уже есть.
+      const workdir = ensureWorktree(toplevel, dbPath, taskId, task.title);
 
       await new Promise<void>((resolve) => {
         appendAgentEvent(db!, taskId, workerId, 'run_start');
         const child = spawnProcess(bin, args, {
-          cwd: toplevel, stdio: ['ignore', 'pipe', 'inherit'],
+          cwd: workdir, stdio: ['ignore', 'pipe', 'inherit'],
           // KDD_ACTOR/KDD_SESSION НЕ хардкодим здесь — они текут из окружения самого воркера.
           // Tick-путь: tick уже выставил их (ai / tick:<nonce>-<i>) на процессе воркера, ...process.env
           // их пробрасывает — ai-gating на move-to-review сохраняется. Ручной `kdd worker <id>`

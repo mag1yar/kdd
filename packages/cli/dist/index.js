@@ -24,6 +24,7 @@ import {
   DEFAULT_TTL,
   editTask,
   editTrack,
+  ensureWorktree,
   exportBoard,
   linkTasks,
   listAgentEvents,
@@ -43,6 +44,7 @@ import {
   resolveToplevel,
   setCriterionChecked,
   statusDigest,
+  sweepWorktrees,
   taskDetail,
   taskDetailCapped,
   tick,
@@ -317,12 +319,12 @@ program.command("tick").description("agent-mode: reclaim expired leases, claim r
   }
   try {
     const toplevel = resolveToplevel();
-    const r = withDbAt(
-      dbPath,
-      projectPath,
-      (db) => tick(db, { maxWorkers, ttl, projectDir: toplevel, spawn: spawnWorker })
-    );
-    out(o.json, r, () => `tick: reclaimed ${r.reclaimed}, spawned ${r.spawned}, active ${r.active}`);
+    const r = withDbAt(dbPath, projectPath, (db) => {
+      const t = tick(db, { maxWorkers, ttl, projectDir: toplevel, spawn: spawnWorker });
+      const reaped = sweepWorktrees(db, toplevel);
+      return { ...t, reaped };
+    });
+    out(o.json, r, () => `tick: reclaimed ${r.reclaimed}, spawned ${r.spawned}, active ${r.active}, reaped ${r.reaped}`);
   } finally {
     release();
   }
@@ -348,11 +350,12 @@ program.command("worker").argument("<id>").description("agent-mode supervisor: r
       allowed
     ];
     db = openDb2(dbPath, projectPath);
-    mustGetTask(db, taskId);
+    const task = mustGetTask(db, taskId);
+    const workdir = ensureWorktree(toplevel, dbPath, taskId, task.title);
     await new Promise((resolve) => {
       appendAgentEvent(db, taskId, workerId, "run_start");
       const child = spawnProcess(bin, args, {
-        cwd: toplevel,
+        cwd: workdir,
         stdio: ["ignore", "pipe", "inherit"],
         // KDD_ACTOR/KDD_SESSION НЕ хардкодим здесь — они текут из окружения самого воркера.
         // Tick-путь: tick уже выставил их (ai / tick:<nonce>-<i>) на процессе воркера, ...process.env

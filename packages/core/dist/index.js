@@ -1118,11 +1118,17 @@ import { dirname as dirname2, join as join4 } from "path";
 var branchName = (taskId) => `kdd/task-${taskId}`;
 var BRANCH_RE = /^refs\/heads\/kdd\/task-(\d+)$/;
 function git(repoRoot, args) {
-  return execFileSync2("git", args, {
-    cwd: repoRoot,
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "ignore"]
-  }).trim();
+  try {
+    return execFileSync2("git", args, {
+      cwd: repoRoot,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"]
+    }).trim();
+  } catch (e) {
+    const err = e;
+    const detail = (err.stderr ?? "").trim() || err.message || "git failed";
+    throw new Error(`git ${args.join(" ")}: ${detail}`);
+  }
 }
 function gitTry(repoRoot, args) {
   try {

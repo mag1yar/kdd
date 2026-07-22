@@ -7,11 +7,18 @@ import { slugify } from './decisions.js';
 const branchName = (taskId: number): string => `kdd/task-${taskId}`;
 const BRANCH_RE = /^refs\/heads\/kdd\/task-(\d+)$/;
 
-// git в repoRoot; бросает при ненулевом коде.
+// git в repoRoot; бросает при ненулевом коде. stderr капчерим (pipe), иначе упавший
+// `git worktree add` даёт только exit-код — на молчаливом tick-пути это единственная диагностика.
 function git(repoRoot: string, args: string[]): string {
-  return execFileSync('git', args, {
-    cwd: repoRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
-  }).trim();
+  try {
+    return execFileSync('git', args, {
+      cwd: repoRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+    }).trim();
+  } catch (e) {
+    const err = e as { stderr?: string; message?: string };
+    const detail = (err.stderr ?? '').trim() || err.message || 'git failed';
+    throw new Error(`git ${args.join(' ')}: ${detail}`);
+  }
 }
 // git best-effort: глотает ошибку (remove/prune несуществующего — не беда).
 function gitTry(repoRoot: string, args: string[]): void {

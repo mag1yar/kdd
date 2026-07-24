@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { spawn as spawnProcess } from 'node:child_process';
 import { createInterface } from 'node:readline';
+import { fileURLToPath } from 'node:url';
 import lockfile from 'proper-lockfile';
 import {
   KddError, addCriterion, addDecision, addTask, appendAgentEvent, archiveTask, blockTask,
@@ -45,7 +46,13 @@ const WORKER_PROMPT = process.env.KDD_WORKER_PROMPT ??
   `criteria (\`kdd criteria check\`) and \`kdd move $KDD_TASK_ID review\`. ` +
   `If you get blocked or must stop early, comment the reason first.`;
 
-const DEFAULT_SPAWN_CMD = `kdd worker "$KDD_TASK_ID"`;
+// #19: воркер зовём тем же node, что и сам tick (process.execPath) + абс. путём к этому dist/index.js,
+// а НЕ bare `kdd` через login-shell node. У nvm/fnm-юзеров login-shell node может ≠ node сборки →
+// нативный better-sqlite3 падает на NODE_MODULE_VERSION mismatch, воркер тихо мрёт. -lc сохраняем
+// (грузит PATH для discovery claude/npx), но node вызываем явно. sq — shell-quote на случай пробелов в путях.
+const sq = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
+const DEFAULT_SPAWN_CMD =
+  `${sq(process.execPath)} ${sq(fileURLToPath(import.meta.url))} worker "$KDD_TASK_ID"`;
 
 const TICK_LOCK_STALE = 10 * 60 * 1000; // ms; tick короткоживущий — 10 мин >> его длительности
 

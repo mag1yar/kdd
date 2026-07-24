@@ -6,6 +6,7 @@ import { readFileSync } from "fs";
 import { basename, dirname, join } from "path";
 import { spawn as spawnProcess } from "child_process";
 import { createInterface } from "readline";
+import { fileURLToPath } from "url";
 import lockfile from "proper-lockfile";
 import {
   KddError as KddError2,
@@ -207,7 +208,8 @@ function readBody(opts) {
   return opts.body;
 }
 var WORKER_PROMPT = process.env.KDD_WORKER_PROMPT ?? `You are a kdd agent worker. Read your task: run \`kdd show $KDD_TASK_ID\`. Do the work in this repository. Renew your lease periodically with \`kdd claim $KDD_TASK_ID --renew\` \u2014 if that errors you have LOST the lease, stop immediately. When done, leave ONE concise summary comment (\`kdd comment $KDD_TASK_ID "<what you changed and why; caveats or follow-ups>"\`) \u2014 this is the durable note humans and future sessions read, so keep it tight, not a log. Then check acceptance criteria (\`kdd criteria check\`) and \`kdd move $KDD_TASK_ID review\`. If you get blocked or must stop early, comment the reason first.`;
-var DEFAULT_SPAWN_CMD = `kdd worker "$KDD_TASK_ID"`;
+var sq = (s) => `'${s.replace(/'/g, `'\\''`)}'`;
+var DEFAULT_SPAWN_CMD = `${sq(process.execPath)} ${sq(fileURLToPath(import.meta.url))} worker "$KDD_TASK_ID"`;
 var TICK_LOCK_STALE = 10 * 60 * 1e3;
 function spawnWorker(taskId, workerId, projectDir) {
   const cmd = process.env.KDD_SPAWN_CMD ?? DEFAULT_SPAWN_CMD;

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { execFileSync, spawn } from 'node:child_process';
 import { dirname, join } from 'node:path';
-import { readFileSync, mkdirSync, utimesSync } from 'node:fs';
+import { readFileSync, writeFileSync, chmodSync, mkdirSync, utimesSync } from 'node:fs';
 import lockfile from 'proper-lockfile';
 import { makeEnv, kdd, BIN } from './run.js';
 
@@ -30,6 +30,30 @@ describe('kdd tick', () => {
     const written = readFileSync(marker, 'utf8');
     expect(written).toMatch(/^1\|/);
     expect(written).not.toContain('/.git');
+  });
+
+  it('default spawn pins the worker to process.execPath (not login-shell node)', () => {
+    const env = makeEnv();
+    kdd(env, 'add', 't', '--criterion', 'c');
+    kdd(env, 'criteria', 'check', '1', '1');
+    const marker = join(dirname(env.KDD_DB!), 'cmd.txt');
+    // фейковый $SHELL: пишет свою -lc-строку ($2) вместо запуска — так виден DEFAULT_SPAWN_CMD
+    const fakeShell = join(dirname(env.KDD_DB!), 'shell.sh');
+    writeFileSync(fakeShell, `#!/bin/sh\nprintf '%s' "$2" > ${marker}\n`);
+    chmodSync(fakeShell, 0o755);
+    env.SHELL = fakeShell;
+    env.KDD_MAX_WORKERS = '1';
+    delete env.KDD_SPAWN_CMD; // именно DEFAULT, не override
+    const out = kdd(env, 'tick');
+    expect(out).toMatch(/spawned 1/);
+
+    let cmd = '';
+    for (let i = 0; i < 10; i++) {
+      try { cmd = readFileSync(marker, 'utf8'); if (cmd) break; } catch { /* not written yet */ }
+      execFileSync('sleep', ['0.2']);
+    }
+    expect(cmd).toContain(process.execPath); // node процесса tick, не резолв из login-shell
+    expect(cmd).toMatch(/worker "\$KDD_TASK_ID"$/); // и по-прежнему зовёт воркера
   });
 
   it('overlapping tick is a no-op (lock held)', () => {

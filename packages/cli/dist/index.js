@@ -26,10 +26,12 @@ import {
   editTrack,
   ensureWorktree,
   exportBoard,
+  headCommit,
   linkTasks,
   listAgentEvents,
   listCriteria,
   listProjects,
+  taskBranchHead,
   listTracks,
   moveTask,
   mustGetTask,
@@ -353,7 +355,7 @@ program.command("worker").argument("<id>").description("agent-mode supervisor: r
     const task = mustGetTask(db, taskId);
     const workdir = ensureWorktree(toplevel, dbPath, taskId, task.title);
     await new Promise((resolve) => {
-      appendAgentEvent(db, taskId, workerId, "run_start");
+      appendAgentEvent(db, taskId, workerId, "run_start", { detail: { head: headCommit(workdir) } });
       const child = spawnProcess(bin, args, {
         cwd: workdir,
         stdio: ["ignore", "pipe", "inherit"],
@@ -369,7 +371,12 @@ program.command("worker").argument("<id>").description("agent-mode supervisor: r
       const end = (exitCode) => {
         if (ended) return;
         ended = true;
-        appendAgentEvent(db, taskId, workerId, "run_end", { detail: { exitCode } });
+        let head;
+        try {
+          head = taskBranchHead(toplevel, taskId) ?? headCommit(workdir);
+        } catch {
+        }
+        appendAgentEvent(db, taskId, workerId, "run_end", { detail: { exitCode, head } });
         resolve();
       };
       child.on("error", (e) => {

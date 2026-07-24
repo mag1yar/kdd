@@ -320,9 +320,17 @@ declare function listAgentEvents(db: Database.Database, taskId: number, opts?: {
     sinceId?: number;
     limit?: number;
 }): AgentEvent[];
+interface RunResult {
+    before: string;
+    after: string;
+    committed: boolean;
+}
+declare function runProduced(db: Database.Database, taskId: number): RunResult | null;
 
 declare function worktreePath(dbPath: string, taskId: number, title: string): string;
+declare function headCommit(repoRoot: string): string;
+declare function taskBranchHead(repoRoot: string, taskId: number): string | null;
 declare function ensureWorktree(repoRoot: string, dbPath: string, taskId: number, title: string): string;
 declare function sweepWorktrees(db: Database.Database, repoRoot: string): number;
 
-export { type Actor, type AgentEvent, type AgentEventKind, CAPS, type Comment, type Criterion, DEFAULT_TTL, type DecisionInput, type EventRow, KddError, MAX_FAILED_ATTEMPTS, MIGRATIONS, PRIORITIES, PRIORITY_ORDER, type ParsedDecision, type ParsedEvent, type Priority, type RecallHit, STATUSES, type SpawnFn, type Status, TRANSITIONS, type Task, type TaskDetailCapped, type TaskListRow, type TickResult, type Track, addCriterion, addDecision, addTask, appendAgentEvent, appendEvent, archiveTask, authorOf, blockTask, boardData, capText, checkMove, claimNext, claimTask, commentTask, contentHash, createTrack, deleteTrack, editTask, editTrack, ensureWorktree, exportBoard, kddHome, linkTasks, listAgentEvents, listCriteria, listProjects, listTracks, logError, moveTask, mustGetTask, mustGetTrack, now, openDb, parseClaudeStreamLine, parseDecisionMd, placeTask, rebuild, recall, reclaimExpired, recordFailedAttempt, releaseClaim, removeCriterion, renderDecisionBody, renderDecisionMd, renewClaim, resolveDbPath, resolveDecisionsDir, resolveToplevel, sanitizeQuery, setCriterionChecked, slugify, statusDigest, sweepWorktrees, syncIndex, taskDetail, taskDetailCapped, tick, unarchiveTask, unblockTask, worktreePath };
+export { type Actor, type AgentEvent, type AgentEventKind, CAPS, type Comment, type Criterion, DEFAULT_TTL, type DecisionInput, type EventRow, KddError, MAX_FAILED_ATTEMPTS, MIGRATIONS, PRIORITIES, PRIORITY_ORDER, type ParsedDecision, type ParsedEvent, type Priority, type RecallHit, type RunResult, STATUSES, type SpawnFn, type Status, TRANSITIONS, type Task, type TaskDetailCapped, type TaskListRow, type TickResult, type Track, addCriterion, addDecision, addTask, appendAgentEvent, appendEvent, archiveTask, authorOf, blockTask, boardData, capText, checkMove, claimNext, claimTask, commentTask, contentHash, createTrack, deleteTrack, editTask, editTrack, ensureWorktree, exportBoard, headCommit, kddHome, linkTasks, listAgentEvents, listCriteria, listProjects, listTracks, logError, moveTask, mustGetTask, mustGetTrack, now, openDb, parseClaudeStreamLine, parseDecisionMd, placeTask, rebuild, recall, reclaimExpired, recordFailedAttempt, releaseClaim, removeCriterion, renderDecisionBody, renderDecisionMd, renewClaim, resolveDbPath, resolveDecisionsDir, resolveToplevel, runProduced, sanitizeQuery, setCriterionChecked, slugify, statusDigest, sweepWorktrees, syncIndex, taskBranchHead, taskDetail, taskDetailCapped, tick, unarchiveTask, unblockTask, worktreePath };

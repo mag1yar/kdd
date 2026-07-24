@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { openDb, parseClaudeStreamLine, appendAgentEvent, listAgentEvents, taskDetail, addTask } from '../src/index.js';
+import { openDb, parseClaudeStreamLine, appendAgentEvent, listAgentEvents, taskDetail, addTask, runProduced } from '../src/index.js';
 
 function db() {
   const d = openDb(':memory:');
@@ -69,5 +69,53 @@ describe('append / list agent_events', () => {
     const d = db();
     appendAgentEvent(d, 1, 'w', 'tool_start', { name: 'Bash', detail: { input: {} } });
     expect(taskDetail(d, 1).events.some((e) => e.action === 'tool_start')).toBe(false);
+  });
+});
+
+describe('runProduced', () => {
+  it('committed=true when before/after head differ', () => {
+    const d = db();
+    appendAgentEvent(d, 1, 'w1', 'run_start', { detail: { head: 'aaa' } });
+    appendAgentEvent(d, 1, 'w1', 'run_end', { detail: { exitCode: 0, head: 'bbb' } });
+    expect(runProduced(d, 1)).toEqual({ before: 'aaa', after: 'bbb', committed: true });
+  });
+
+  it('committed=false when head unchanged', () => {
+    const d = db();
+    appendAgentEvent(d, 1, 'w1', 'run_start', { detail: { head: 'aaa' } });
+    appendAgentEvent(d, 1, 'w1', 'run_end', { detail: { exitCode: 0, head: 'aaa' } });
+    expect(runProduced(d, 1)).toEqual({ before: 'aaa', after: 'aaa', committed: false });
+  });
+
+  it('null when no run_end (killed / in-flight)', () => {
+    const d = db();
+    appendAgentEvent(d, 1, 'w1', 'run_start', { detail: { head: 'aaa' } });
+    expect(runProduced(d, 1)).toBeNull();
+  });
+
+  it('null when a head is missing (old events)', () => {
+    const d = db();
+    appendAgentEvent(d, 1, 'w1', 'run_start');
+    appendAgentEvent(d, 1, 'w1', 'run_end', { detail: { exitCode: 0 } });
+    expect(runProduced(d, 1)).toBeNull();
+  });
+
+  it('uses the LAST run, pairs run_start before that run_end', () => {
+    const d = db();
+    appendAgentEvent(d, 1, 'w1', 'run_start', { detail: { head: 'aaa' } });
+    appendAgentEvent(d, 1, 'w1', 'run_end', { detail: { head: 'bbb' } });
+    appendAgentEvent(d, 1, 'w2', 'run_start', { detail: { head: 'bbb' } });
+    appendAgentEvent(d, 1, 'w2', 'run_end', { detail: { head: 'bbb' } });
+    expect(runProduced(d, 1)).toEqual({ before: 'bbb', after: 'bbb', committed: false });
+  });
+
+  // регресс: убитый воркер (run_start без run_end) ПОВЕРХ завершённого рана не должен
+  // вернуть старый ран — иначе #10 reset откатит ветку к устаревшему before, потеряв работу.
+  it('null when a newer run was killed (dangling run_start over a completed run)', () => {
+    const d = db();
+    appendAgentEvent(d, 1, 'w1', 'run_start', { detail: { head: 'aaa' } });
+    appendAgentEvent(d, 1, 'w1', 'run_end', { detail: { head: 'bbb' } });
+    appendAgentEvent(d, 1, 'w2', 'run_start', { detail: { head: 'bbb' } }); // committed ccc, then SIGKILL — no run_end
+    expect(runProduced(d, 1)).toBeNull();
   });
 });

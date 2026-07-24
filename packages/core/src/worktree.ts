@@ -34,6 +34,20 @@ export function worktreePath(dbPath: string, taskId: number, title: string): str
   return join(realRoot, 'worktrees', `task-${taskId}-${slugify(title)}`);
 }
 
+// HEAD-коммит worktree/репо. Тонкая обёртка над git() — воркер снимает before/after HEAD рана.
+export function headCommit(repoRoot: string): string {
+  return git(repoRoot, ['rev-parse', 'HEAD']);
+}
+
+// Тип коммита ВЕТКИ задачи (kdd/task-<id>) из главного репо. null — ветки нет.
+// Ветка живёт в главном репо и переживает снос worktree (sweepWorktrees удаляет worktree, ветку
+// оставляет). Для run_end: after_head остаётся читаемым, даже если worktree воркера уже сметён
+// гонкой с tick.sweepWorktrees — иначе завершённый ран с реальными коммитами выглядел бы пустым.
+export function taskBranchHead(repoRoot: string, taskId: number): string | null {
+  try { return git(repoRoot, ['rev-parse', '--verify', '--quiet', `refs/heads/${branchName(taskId)}`]); }
+  catch { return null; } // ref нет → non-zero exit → git() бросает
+}
+
 interface WtEntry { path: string; branch: string | null }
 // Парс `git worktree list --porcelain`. branch=null для detached/main-bare. Internal — не в barrel.
 function listWorktrees(repoRoot: string): WtEntry[] {

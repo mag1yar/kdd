@@ -1110,6 +1110,33 @@ function listAgentEvents(db, taskId, opts) {
     `SELECT * FROM agent_events WHERE task_id = ? AND id > ? ORDER BY id LIMIT ?`
   ).all(taskId, opts?.sinceId ?? 0, opts?.limit ?? 500);
 }
+function runProduced(db, taskId) {
+  const end = db.prepare(
+    `SELECT id, detail FROM agent_events WHERE task_id = ? AND kind = 'run_end' ORDER BY id DESC LIMIT 1`
+  ).get(taskId);
+  if (!end) return null;
+  const dangling = db.prepare(
+    `SELECT 1 FROM agent_events WHERE task_id = ? AND kind = 'run_start' AND id > ? LIMIT 1`
+  ).get(taskId, end.id);
+  if (dangling) return null;
+  const start = db.prepare(
+    `SELECT detail FROM agent_events WHERE task_id = ? AND kind = 'run_start' AND id < ? ORDER BY id DESC LIMIT 1`
+  ).get(taskId, end.id);
+  if (!start) return null;
+  const before = headOf(start.detail);
+  const after = headOf(end.detail);
+  if (before === null || after === null) return null;
+  return { before, after, committed: before !== after };
+}
+function headOf(detail) {
+  if (!detail) return null;
+  try {
+    const h = JSON.parse(detail).head;
+    return typeof h === "string" ? h : null;
+  } catch {
+    return null;
+  }
+}
 
 // src/worktree.ts
 import { execFileSync as execFileSync2 } from "child_process";
@@ -1140,6 +1167,16 @@ function worktreePath(dbPath, taskId, title) {
   const root = dirname2(dbPath);
   const realRoot = existsSync4(root) ? realpathSync(root) : root;
   return join4(realRoot, "worktrees", `task-${taskId}-${slugify(title)}`);
+}
+function headCommit(repoRoot) {
+  return git(repoRoot, ["rev-parse", "HEAD"]);
+}
+function taskBranchHead(repoRoot, taskId) {
+  try {
+    return git(repoRoot, ["rev-parse", "--verify", "--quiet", `refs/heads/${branchName(taskId)}`]);
+  } catch {
+    return null;
+  }
 }
 function listWorktrees(repoRoot) {
   const out = git(repoRoot, ["worktree", "list", "--porcelain"]);
@@ -1222,6 +1259,7 @@ export {
   editTrack,
   ensureWorktree,
   exportBoard,
+  headCommit,
   kddHome,
   linkTasks,
   listAgentEvents,
@@ -1249,12 +1287,14 @@ export {
   resolveDbPath,
   resolveDecisionsDir,
   resolveToplevel,
+  runProduced,
   sanitizeQuery,
   setCriterionChecked,
   slugify,
   statusDigest,
   sweepWorktrees,
   syncIndex,
+  taskBranchHead,
   taskDetail,
   taskDetailCapped,
   tick,

@@ -59,3 +59,39 @@ export function listAgentEvents(
     `SELECT * FROM agent_events WHERE task_id = ? AND id > ? ORDER BY id LIMIT ?`,
   ).all(taskId, opts?.sinceId ?? 0, opts?.limit ?? 500) as AgentEvent[];
 }
+
+export interface RunResult { before: string; after: string; committed: boolean }
+
+// Результат ПОСЛЕДНЕГО рана задачи: снял ли он коммиты (before_head != after_head).
+// null — рана нет, он не завершён, или отсутствует head. Никогда не возвращает СТАРЫЙ ран как результат:
+// если поверх последнего run_end есть более свежий run_start (убитый воркер, не дописавший run_end),
+// последний ран не завершён → null. Иначе #10 reset откатил бы ветку к устаревшему before, потеряв работу.
+// Потребители (#10 reset, #12 chain) берут before для отката ветки.
+export function runProduced(db: Database.Database, taskId: number): RunResult | null {
+  const end = db.prepare(
+    `SELECT id, detail FROM agent_events WHERE task_id = ? AND kind = 'run_end' ORDER BY id DESC LIMIT 1`,
+  ).get(taskId) as { id: number; detail: string | null } | undefined;
+  if (!end) return null;
+  // более свежий run_start, чем последний run_end → последний ран в полёте/убит → не завершён.
+  const dangling = db.prepare(
+    `SELECT 1 FROM agent_events WHERE task_id = ? AND kind = 'run_start' AND id > ? LIMIT 1`,
+  ).get(taskId, end.id);
+  if (dangling) return null;
+  const start = db.prepare(
+    `SELECT detail FROM agent_events WHERE task_id = ? AND kind = 'run_start' AND id < ? ORDER BY id DESC LIMIT 1`,
+  ).get(taskId, end.id) as { detail: string | null } | undefined;
+  if (!start) return null;
+  const before = headOf(start.detail);
+  const after = headOf(end.detail);
+  if (before === null || after === null) return null;
+  return { before, after, committed: before !== after };
+}
+
+// detail — JSON или null; вытащить .head как строку. Битый JSON / нет head → null.
+function headOf(detail: string | null): string | null {
+  if (!detail) return null;
+  try {
+    const h = (JSON.parse(detail) as { head?: unknown }).head;
+    return typeof h === 'string' ? h : null;
+  } catch { return null; }
+}

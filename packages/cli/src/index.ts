@@ -8,7 +8,7 @@ import lockfile from 'proper-lockfile';
 import {
   KddError, addCriterion, addDecision, addTask, appendAgentEvent, archiveTask, blockTask,
   boardData, claimNext, claimTask, commentTask, createTrack, deleteTrack, DEFAULT_TTL, editTask,
-  editTrack, ensureWorktree, exportBoard, linkTasks, listAgentEvents, listCriteria, listProjects,
+  editTrack, ensureWorktree, exportBoard, headCommit, linkTasks, listAgentEvents, listCriteria, listProjects, taskBranchHead,
   listTracks, moveTask, mustGetTask, openDb, parseClaudeStreamLine, rebuild, recall, removeCriterion,
   renewClaim, resolveDbPath, resolveDecisionsDir, resolveToplevel, setCriterionChecked, statusDigest,
   sweepWorktrees, taskDetail, taskDetailCapped, tick, unarchiveTask, unblockTask, type Status,
@@ -219,7 +219,7 @@ program.command('worker')
       const workdir = ensureWorktree(toplevel, dbPath, taskId, task.title);
 
       await new Promise<void>((resolve) => {
-        appendAgentEvent(db!, taskId, workerId, 'run_start');
+        appendAgentEvent(db!, taskId, workerId, 'run_start', { detail: { head: headCommit(workdir) } });
         const child = spawnProcess(bin, args, {
           cwd: workdir, stdio: ['ignore', 'pipe', 'inherit'],
           // KDD_ACTOR/KDD_SESSION НЕ хардкодим здесь — они текут из окружения самого воркера.
@@ -234,7 +234,12 @@ program.command('worker')
         const end = (exitCode: number | null) => {
           if (ended) return;
           ended = true;
-          appendAgentEvent(db!, taskId, workerId, 'run_end', { detail: { exitCode } });
+          // after_head предпочитаем из ветки kdd/task-<id> (главный репо) — переживает снос worktree
+          // гонкой с tick.sweepWorktrees. workdir HEAD как fallback; оба недоступны → head=undefined
+          // (неполный ран, run_end без head).
+          let head: string | undefined;
+          try { head = taskBranchHead(toplevel, taskId) ?? headCommit(workdir); } catch { /* worktree gone */ }
+          appendAgentEvent(db!, taskId, workerId, 'run_end', { detail: { exitCode, head } });
           resolve();
         };
         child.on('error', (e) => {

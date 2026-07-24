@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { addTask, ensureWorktree, openDb, sweepWorktrees, worktreePath } from '../src/index.js';
+import { addTask, ensureWorktree, openDb, sweepWorktrees, taskBranchHead, worktreePath } from '../src/index.js';
 
 let repo: string;
 let dbPath: string;
@@ -34,6 +34,23 @@ describe('worktreePath', () => {
     expect(p).toBe(worktreePath(dbPath, 7, 'Fix The Bug!'));
     expect(p).toContain(join('worktrees', 'task-7-'));
     expect(p).toMatch(/task-7-fix-the-bug$/);
+  });
+});
+
+describe('taskBranchHead', () => {
+  it('возвращает tip ветки kdd/task-<id> и переживает снос worktree', () => {
+    const wt = ensureWorktree(repo, dbPath, 1, 'x');
+    g(['-C', wt, 'commit', '--allow-empty', '-qm', 'work']);
+    const tip = g(['rev-parse', 'HEAD'], wt);
+    expect(taskBranchHead(repo, 1)).toBe(tip);
+    // снос worktree (как sweepWorktrees) — ветка остаётся в главном репо
+    g(['worktree', 'remove', '--force', wt]);
+    expect(existsSync(wt)).toBe(false);
+    expect(taskBranchHead(repo, 1)).toBe(tip); // всё ещё читается из ветки
+  });
+
+  it('null когда ветки задачи нет', () => {
+    expect(taskBranchHead(repo, 999)).toBeNull();
   });
 });
 

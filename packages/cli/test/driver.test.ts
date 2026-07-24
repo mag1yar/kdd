@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { readFileSync, mkdirSync, utimesSync } from 'node:fs';
 import lockfile from 'proper-lockfile';
-import { makeEnv, kdd } from './run.js';
+import { makeEnv, kdd, BIN } from './run.js';
 
 const TICK_LOCK_STALE = 10 * 60 * 1000; // mirrors index.ts's tick lock staleness window
 
@@ -71,5 +71,19 @@ describe('kdd tick', () => {
     env.KDD_MAX_WORKERS = '1';
     const out = kdd(env, 'tick'); // throws (execFileSync) if the process crashed
     expect(out).toMatch(/^tick:/);
+  });
+
+  it('--watch loops (≥2 passes) and exits 0 on SIGINT', async () => {
+    const env = makeEnv(); // пустая доска → каждый проход безвреден (reclaimed 0, spawned 0)
+    const child = spawn('node', [BIN, 'tick', '--watch', '--interval', '0.2'],
+      { env, stdio: ['ignore', 'pipe', 'pipe'] });
+    let out = '';
+    child.stdout!.on('data', (d) => { out += String(d); });
+    await new Promise((r) => setTimeout(r, 800)); // ~3 прохода при 0.2s
+    child.kill('SIGINT');
+    const code: number = await new Promise((r) => child.on('exit', (c) => r(c ?? -1)));
+    expect((out.match(/tick: reclaimed/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect(out).toMatch(/^\[.+Z\] tick: /m); // watch-строки со штампом
+    expect(code).toBe(0);
   });
 });

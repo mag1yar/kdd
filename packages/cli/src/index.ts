@@ -163,35 +163,83 @@ program.command('claim')
 program.command('tick')
   .description('agent-mode: reclaim expired leases, claim ready tasks, spawn workers')
   .option('--json')
-  .action((o) => run(o.json, () => {
+  .option('--watch', 'loop until SIGINT/SIGTERM instead of a single pass')
+  .option('--interval <sec>', 'seconds between passes in --watch mode', '30')
+  .action(async (o) => {
+    const intervalMs = Number(o.interval) * 1000;
+    if (o.watch && (!Number.isFinite(intervalMs) || intervalMs <= 0)) {
+      fail(`--interval must be a positive number of seconds (got '${o.interval}')`, o.json);
+    }
     const maxWorkers = Number(process.env.KDD_MAX_WORKERS ?? 3);
     const ttl = Number(process.env.KDD_WORKER_TTL ?? 1800);
     if (!Number.isInteger(maxWorkers) || maxWorkers < 1) fail('KDD_MAX_WORKERS must be a positive integer', o.json);
-    const { dbPath, projectPath } = resolveDbPath();
-    let release: (() => void) | undefined;
-    try {
-      release = lockfile.lockSync(join(dirname(dbPath), 'tick'), { stale: TICK_LOCK_STALE, realpath: false });
-    } catch (e) {
-      if ((e as NodeJS.ErrnoException).code === 'ELOCKED') {
-        out(o.json, { skipped: true }, () => 'tick: locked (another tick running)'); return;
+
+    // один проход: lock -> tick -> sweep. Возвращает результат ИЛИ {skipped:true} при занятом локе.
+    const onePass = (): Record<string, unknown> => {
+      const { dbPath, projectPath } = resolveDbPath();
+      let release: (() => void) | undefined;
+      try {
+        release = lockfile.lockSync(join(dirname(dbPath), 'tick'), { stale: TICK_LOCK_STALE, realpath: false });
+      } catch (e) {
+        if ((e as NodeJS.ErrnoException).code === 'ELOCKED') return { skipped: true };
+        throw e;
       }
-      throw e;
-    }
-    try {
-      const toplevel = resolveToplevel();
-      const r = withDbAt(dbPath, projectPath, (db) => {
-        const t = tick(db, { maxWorkers, ttl, projectDir: toplevel, spawn: spawnWorker });
-        // sweep ПОСЛЕ claim-loop: re-claimed задача уже in_progress → её worktree не тронут;
-        // истинно брошенная (reclaim без re-claim) → status 'new' → worktree снесён.
-        const reaped = sweepWorktrees(db, toplevel);
-        return { ...t, reaped };
+      try {
+        const toplevel = resolveToplevel();
+        return withDbAt(dbPath, projectPath, (db) => {
+          const t = tick(db, { maxWorkers, ttl, projectDir: toplevel, spawn: spawnWorker });
+          // sweep ПОСЛЕ claim-loop: re-claimed задача уже in_progress → её worktree не тронут;
+          // истинно брошенная (reclaim без re-claim) → status 'new' → worktree снесён.
+          return { ...t, reaped: sweepWorktrees(db, toplevel) };
+        });
+      } finally {
+        release();
+      }
+    };
+
+    const print = (r: Record<string, unknown>): void => {
+      const ts = o.watch ? new Date().toISOString() : '';
+      out(o.json, o.watch ? { ...r, ts } : r, () => {
+        const stamp = o.watch ? `[${ts}] ` : '';
+        return r.skipped
+          ? `${stamp}tick: locked (another tick running)`
+          : `${stamp}tick: reclaimed ${r.reclaimed}, spawned ${r.spawned}, active ${r.active}, reaped ${r.reaped}`;
       });
-      out(o.json, r, () =>
-        `tick: reclaimed ${r.reclaimed}, spawned ${r.spawned}, active ${r.active}, reaped ${r.reaped}`);
+    };
+
+    // single-shot: ошибка фатальна (fail exits, как раньше). --watch: логируем и продолжаем —
+    // overnight-раннер не должен падать целиком от одного транзиентного git-глюка.
+    const pass = (): void => {
+      try { print(onePass()); } catch (e) {
+        const msg = e instanceof KddError ? e.message : String(e);
+        if (!o.watch) fail(msg, o.json);
+        process.stderr.write(`[${new Date().toISOString()}] tick error: ${msg}\n`);
+      }
+    };
+
+    if (!o.watch) { pass(); return; }
+
+    // --watch: kdd остаётся daemonless — это ОПЦИОНАЛЬНЫЙ long-lived раннер. Сериен (ждём проход
+    // перед сном) + межпроцессный TICK_LOCK → двойного tick нет ни тут, ни со вторым watch/UI.
+    let stop = false;
+    let wake: (() => void) | undefined; // прерывает сон при сигнале
+    const onSig = (): void => { stop = true; wake?.(); };
+    process.on('SIGINT', onSig);
+    process.on('SIGTERM', onSig);
+    try {
+      while (!stop) {
+        pass();
+        if (stop) break;
+        await new Promise<void>((res) => {
+          const timer = setTimeout(() => { wake = undefined; res(); }, intervalMs);
+          wake = () => { clearTimeout(timer); wake = undefined; res(); };
+        });
+      }
     } finally {
-      release();
+      process.off('SIGINT', onSig);
+      process.off('SIGTERM', onSig);
     }
-  }));
+  });
 
 program.command('worker')
   .argument('<id>')

@@ -304,33 +304,83 @@ program.command("claim").argument("[id]", "task id to claim; omit when using --n
   }
   out(o.json, res.task, () => renderClaim(res.task, o.renew ? "renewed" : "claimed"));
 }));
-program.command("tick").description("agent-mode: reclaim expired leases, claim ready tasks, spawn workers").option("--json").action((o) => run(o.json, () => {
+program.command("tick").description("agent-mode: reclaim expired leases, claim ready tasks, spawn workers").option("--json").option("--watch", "loop until SIGINT/SIGTERM instead of a single pass").option("--interval <sec>", "seconds between passes in --watch mode", "30").action(async (o) => {
+  const intervalMs = Number(o.interval) * 1e3;
+  if (o.watch && (!Number.isFinite(intervalMs) || intervalMs <= 0)) {
+    fail(`--interval must be a positive number of seconds (got '${o.interval}')`, o.json);
+  }
   const maxWorkers = Number(process.env.KDD_MAX_WORKERS ?? 3);
   const ttl = Number(process.env.KDD_WORKER_TTL ?? 1800);
   if (!Number.isInteger(maxWorkers) || maxWorkers < 1) fail("KDD_MAX_WORKERS must be a positive integer", o.json);
-  const { dbPath, projectPath } = resolveDbPath2();
-  let release;
-  try {
-    release = lockfile.lockSync(join(dirname(dbPath), "tick"), { stale: TICK_LOCK_STALE, realpath: false });
-  } catch (e) {
-    if (e.code === "ELOCKED") {
-      out(o.json, { skipped: true }, () => "tick: locked (another tick running)");
-      return;
+  const onePass = () => {
+    const { dbPath, projectPath } = resolveDbPath2();
+    let release;
+    try {
+      release = lockfile.lockSync(join(dirname(dbPath), "tick"), { stale: TICK_LOCK_STALE, realpath: false });
+    } catch (e) {
+      if (e.code === "ELOCKED") return { skipped: true };
+      throw e;
     }
-    throw e;
-  }
-  try {
-    const toplevel = resolveToplevel();
-    const r = withDbAt(dbPath, projectPath, (db) => {
-      const t = tick(db, { maxWorkers, ttl, projectDir: toplevel, spawn: spawnWorker });
-      const reaped = sweepWorktrees(db, toplevel);
-      return { ...t, reaped };
+    try {
+      const toplevel = resolveToplevel();
+      return withDbAt(dbPath, projectPath, (db) => {
+        const t = tick(db, { maxWorkers, ttl, projectDir: toplevel, spawn: spawnWorker });
+        return { ...t, reaped: sweepWorktrees(db, toplevel) };
+      });
+    } finally {
+      release();
+    }
+  };
+  const print = (r) => {
+    const ts = o.watch ? (/* @__PURE__ */ new Date()).toISOString() : "";
+    out(o.json, o.watch ? { ...r, ts } : r, () => {
+      const stamp = o.watch ? `[${ts}] ` : "";
+      return r.skipped ? `${stamp}tick: locked (another tick running)` : `${stamp}tick: reclaimed ${r.reclaimed}, spawned ${r.spawned}, active ${r.active}, reaped ${r.reaped}`;
     });
-    out(o.json, r, () => `tick: reclaimed ${r.reclaimed}, spawned ${r.spawned}, active ${r.active}, reaped ${r.reaped}`);
-  } finally {
-    release();
+  };
+  const pass = () => {
+    try {
+      print(onePass());
+    } catch (e) {
+      const msg = e instanceof KddError2 ? e.message : String(e);
+      if (!o.watch) fail(msg, o.json);
+      process.stderr.write(`[${(/* @__PURE__ */ new Date()).toISOString()}] tick error: ${msg}
+`);
+    }
+  };
+  if (!o.watch) {
+    pass();
+    return;
   }
-}));
+  let stop = false;
+  let wake;
+  const onSig = () => {
+    stop = true;
+    wake?.();
+  };
+  process.on("SIGINT", onSig);
+  process.on("SIGTERM", onSig);
+  try {
+    while (!stop) {
+      pass();
+      if (stop) break;
+      await new Promise((res) => {
+        const timer = setTimeout(() => {
+          wake = void 0;
+          res();
+        }, intervalMs);
+        wake = () => {
+          clearTimeout(timer);
+          wake = void 0;
+          res();
+        };
+      });
+    }
+  } finally {
+    process.off("SIGINT", onSig);
+    process.off("SIGTERM", onSig);
+  }
+});
 program.command("worker").argument("<id>").description("agent-mode supervisor: run claude on a task, ingest its stream into agent_events").action(async (id) => {
   const workerId = process.env.KDD_SESSION ?? `manual:${process.pid}`;
   let db;

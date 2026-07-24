@@ -3,10 +3,10 @@
 // src/index.ts
 import { Command } from "commander";
 import { readFileSync } from "fs";
-import { basename, dirname, join } from "path";
+import { basename as basename2, dirname as dirname2, join } from "path";
 import { spawn as spawnProcess } from "child_process";
 import { createInterface } from "readline";
-import { fileURLToPath } from "url";
+import { fileURLToPath as fileURLToPath2 } from "url";
 import lockfile from "proper-lockfile";
 import {
   KddError as KddError2,
@@ -31,7 +31,7 @@ import {
   linkTasks,
   listAgentEvents,
   listCriteria,
-  listProjects,
+  listProjects as listProjects2,
   taskBranchHead,
   listTracks,
   moveTask,
@@ -42,9 +42,9 @@ import {
   recall,
   removeCriterion,
   renewClaim,
-  resolveDbPath as resolveDbPath2,
+  resolveDbPath as resolveDbPath3,
   resolveDecisionsDir,
-  resolveToplevel,
+  resolveToplevel as resolveToplevel2,
   setCriterionChecked,
   statusDigest,
   sweepWorktrees,
@@ -82,6 +82,243 @@ function fail(msg, json) {
   if (json) console.log(JSON.stringify({ error: msg }));
   else console.error(`error: ${msg}`);
   process.exit(1);
+}
+function out(json, obj, text) {
+  console.log(json ? JSON.stringify(obj) : text());
+}
+
+// src/schedule.ts
+import { existsSync } from "fs";
+import { basename, dirname } from "path";
+import { fileURLToPath } from "url";
+import {
+  findJob,
+  getMeta,
+  JOBS,
+  kddHome,
+  listProjects,
+  resolveDbPath as resolveDbPath2,
+  resolveToplevel,
+  setMeta,
+  setMetaMany
+} from "@kddkit/core";
+import { getBackend } from "@kddkit/schedule";
+var CLI_ENTRY = fileURLToPath(import.meta.url);
+function parseEvery(s) {
+  if (!s) return void 0;
+  const m = s.match(/^(\d+)\s*m?$/i);
+  return m ? Number(m[1]) : void 0;
+}
+function makeBackend() {
+  return getBackend({
+    platform: process.env.KDD_SCHEDULE_PLATFORM,
+    dir: process.env.KDD_SCHEDULE_DIR,
+    launchctl: process.env.KDD_SCHEDULE_LAUNCHCTL
+  });
+}
+function repohash() {
+  return basename(dirname(resolveDbPath2().dbPath));
+}
+function jobName(job) {
+  return `kdd-${repohash()}-${job.id}`;
+}
+function specFor(job, everyMinutes) {
+  const { dbPath } = resolveDbPath2();
+  const env = { KDD_HOME: kddHome() };
+  for (const k of ["KDD_DB", "KDD_DECISIONS_DIR", "KDD_ACTOR", "KDD_SESSION"]) {
+    if (process.env[k]) env[k] = process.env[k];
+  }
+  return {
+    name: jobName(job),
+    everyMinutes,
+    argv: [process.execPath, CLI_ENTRY, ...job.args],
+    cwd: resolveToplevel(),
+    env,
+    logDir: dirname(dbPath)
+  };
+}
+function resolveInterval(job, everyOpt, storedInterval, json) {
+  const parsed = parseEvery(everyOpt);
+  if (everyOpt !== void 0 && parsed === void 0) {
+    fail(`--every must be minutes like '15' or '15m' (got '${everyOpt}')`, json);
+  }
+  const minutes = parsed ?? (storedInterval ? Number(storedInterval) : job.defaultIntervalMin);
+  return Math.max(minutes, job.minIntervalMin);
+}
+function requireJob(id, json) {
+  const job = findJob(id ?? "tick");
+  if (!job) fail(`unknown job '${id}' (known: ${JOBS.map((j) => j.id).join(", ")})`, json);
+  return job;
+}
+function scheduleFail(json, e) {
+  const message = e instanceof Error ? e.message : String(e);
+  if (json) console.log(JSON.stringify({ ok: false, error: { code: "schedule_error", message, fix: message } }));
+  else console.error(`error: ${message}`);
+  process.exit(1);
+}
+function writeTickLastRun(db, jobId, result) {
+  setMetaMany(db, {
+    [`schedule.${jobId}.last_run`]: (/* @__PURE__ */ new Date()).toISOString(),
+    [`schedule.${jobId}.last_result`]: JSON.stringify(result)
+  });
+}
+function registerScheduleCommands(program2) {
+  const s = program2.command("schedule").description("OS-level recurring jobs (agent auto-activation)");
+  s.command("status").argument("[job]", "job id", "tick").option("--json").action(async (id, o) => {
+    const job = requireJob(id, o.json);
+    const name = jobName(job);
+    const backend = makeBackend();
+    const meta = withDb((db) => ({
+      enabled: getMeta(db, `schedule.${job.id}.enabled`) === "1",
+      interval_min: Number(getMeta(db, `schedule.${job.id}.interval_min`) ?? job.defaultIntervalMin),
+      last_run: getMeta(db, `schedule.${job.id}.last_run`),
+      last_result: getMeta(db, `schedule.${job.id}.last_result`)
+    }));
+    let loaded = false;
+    let lastExitCode;
+    try {
+      const st = await backend.status(name);
+      loaded = st.installed;
+      lastExitCode = st.lastExitCode;
+    } catch (e) {
+      scheduleFail(o.json, e);
+    }
+    const plistPresent = existsSync(backend.path(name));
+    const installed = loaded && plistPresent;
+    const drift = meta.enabled && !installed ? "not_installed" : !meta.enabled && (loaded || plistPresent) ? "orphaned" : void 0;
+    let lastResult;
+    try {
+      lastResult = meta.last_result ? JSON.parse(meta.last_result) : void 0;
+    } catch {
+      lastResult = void 0;
+    }
+    const next_run = meta.last_run ? new Date(new Date(meta.last_run).getTime() + meta.interval_min * 6e4).toISOString() : void 0;
+    const result = {
+      job: job.id,
+      name,
+      enabled: meta.enabled,
+      interval_min: meta.interval_min,
+      installed,
+      lastExitCode,
+      last_run: meta.last_run,
+      last_result: lastResult,
+      next_run,
+      drift
+    };
+    out(o.json, result, () => `${job.id}: enabled=${meta.enabled} interval=${meta.interval_min}m installed=${installed}${drift ? ` drift=${drift}` : ""}${meta.last_run ? ` last_run=${meta.last_run}` : ""}`);
+  });
+  s.command("enable").argument("[job]", "job id", "tick").option("--every <dur>", "interval, e.g. 15m or 15").option("--dry-run").option("--json").action(async (id, o) => {
+    const job = requireJob(id, o.json);
+    const stored = o.every === void 0 ? withDb((db) => getMeta(db, `schedule.${job.id}.interval_min`)) : void 0;
+    const everyMinutes = resolveInterval(job, o.every, stored, o.json);
+    const spec = specFor(job, everyMinutes);
+    const backend = makeBackend();
+    if (o.dryRun) {
+      out(
+        o.json,
+        { dry_run: true, name: spec.name, path: backend.path(spec.name), preview: backend.preview(spec) },
+        () => `# would write ${backend.path(spec.name)}
+${backend.preview(spec)}`
+      );
+      return;
+    }
+    try {
+      await backend.install(spec);
+    } catch (e) {
+      scheduleFail(o.json, e);
+    }
+    withDb((db) => setMetaMany(db, {
+      [`schedule.${job.id}.enabled`]: "1",
+      [`schedule.${job.id}.interval_min`]: String(everyMinutes)
+    }));
+    out(
+      o.json,
+      { ok: true, name: spec.name, interval_min: everyMinutes },
+      () => `${job.id}: enabled, every ${everyMinutes}m`
+    );
+  });
+  s.command("disable").argument("[job]", "job id", "tick").option("--dry-run").option("--json").action(async (id, o) => {
+    const job = requireJob(id, o.json);
+    const name = jobName(job);
+    const backend = makeBackend();
+    if (o.dryRun) {
+      out(
+        o.json,
+        { dry_run: true, name, path: backend.path(name) },
+        () => `# would remove ${backend.path(name)} and unload ${name}`
+      );
+      return;
+    }
+    withDb((db) => setMeta(db, `schedule.${job.id}.enabled`, "0"));
+    try {
+      await backend.uninstall(name);
+    } catch (e) {
+      scheduleFail(o.json, e);
+    }
+    out(o.json, { ok: true, name }, () => `${job.id}: disabled`);
+  });
+  s.command("install").argument("[job]", "job id", "tick").option("--dry-run").option("--json").description("reconcile OS state with stored meta (repairs drift; does not touch enabled)").action(async (id, o) => {
+    const job = requireJob(id, o.json);
+    const stored = withDb((db) => getMeta(db, `schedule.${job.id}.interval_min`));
+    const everyMinutes = resolveInterval(job, void 0, stored, o.json);
+    const spec = specFor(job, everyMinutes);
+    const backend = makeBackend();
+    if (o.dryRun) {
+      out(
+        o.json,
+        { dry_run: true, name: spec.name, path: backend.path(spec.name), preview: backend.preview(spec) },
+        () => `# would write ${backend.path(spec.name)}
+${backend.preview(spec)}`
+      );
+      return;
+    }
+    try {
+      await backend.install(spec);
+    } catch (e) {
+      scheduleFail(o.json, e);
+    }
+    out(o.json, { ok: true, name: spec.name, interval_min: everyMinutes }, () => `${job.id}: installed`);
+  });
+  s.command("uninstall").option("--all", "every kdd-managed job on this machine, not just this repo").option("--dry-run").option("--json").action(async (o) => {
+    const backend = makeBackend();
+    let names;
+    try {
+      names = o.all ? await backend.list() : JOBS.map((j) => jobName(j));
+    } catch (e) {
+      scheduleFail(o.json, e);
+    }
+    if (o.dryRun) {
+      out(o.json, { dry_run: true, names }, () => names.map((n) => `# would remove ${backend.path(n)}`).join("\n") || "nothing to remove");
+      return;
+    }
+    for (const n of names) {
+      try {
+        await backend.uninstall(n);
+      } catch (e) {
+        scheduleFail(o.json, e);
+      }
+    }
+    out(o.json, { ok: true, names }, () => names.length ? `uninstalled: ${names.join(", ")}` : "nothing to remove");
+  });
+  s.command("list").option("--json").action(async (o) => {
+    let names;
+    try {
+      names = await makeBackend().list();
+    } catch (e) {
+      scheduleFail(o.json, e);
+    }
+    const jobIds = JOBS.map((j) => j.id).join("|");
+    const re = new RegExp(`^kdd-(.+)-(${jobIds})$`);
+    const projects = listProjects();
+    const rows = names.map((name) => {
+      const m = name.match(re);
+      const hash = m?.[1];
+      const jobId = m?.[2];
+      const repoPath = hash && projects.find((p) => basename(dirname(p.dbPath)) === hash)?.projectPath;
+      return { name, repohash: hash, job: jobId, repoPath };
+    });
+    out(o.json, rows, () => rows.length ? rows.map((r) => `${r.name}  ${r.repoPath ?? "(unknown repo)"}`).join("\n") : "no scheduled jobs");
+  });
 }
 
 // src/render.ts
@@ -199,9 +436,6 @@ function renderStatus(d) {
 
 // src/index.ts
 var program = new Command().name("kdd").description("kanban substrate for humans and Claude");
-function out(json, obj, text) {
-  console.log(json ? JSON.stringify(obj) : text());
-}
 function readBody(opts) {
   if (opts.bodyFile) return readFileSync(opts.bodyFile, "utf8");
   if (opts.body === "-") return readFileSync(0, "utf8");
@@ -209,7 +443,7 @@ function readBody(opts) {
 }
 var WORKER_PROMPT = process.env.KDD_WORKER_PROMPT ?? `You are a kdd agent worker. Read your task: run \`kdd show $KDD_TASK_ID\`. Do the work in this repository. Renew your lease periodically with \`kdd claim $KDD_TASK_ID --renew\` \u2014 if that errors you have LOST the lease, stop immediately. When done, leave ONE concise summary comment (\`kdd comment $KDD_TASK_ID "<what you changed and why; caveats or follow-ups>"\`) \u2014 this is the durable note humans and future sessions read, so keep it tight, not a log. Then check acceptance criteria (\`kdd criteria check\`) and \`kdd move $KDD_TASK_ID review\`. If you get blocked or must stop early, comment the reason first.`;
 var sq = (s) => `'${s.replace(/'/g, `'\\''`)}'`;
-var DEFAULT_SPAWN_CMD = `${sq(process.execPath)} ${sq(fileURLToPath(import.meta.url))} worker "$KDD_TASK_ID"`;
+var DEFAULT_SPAWN_CMD = `${sq(process.execPath)} ${sq(fileURLToPath2(import.meta.url))} worker "$KDD_TASK_ID"`;
 var TICK_LOCK_STALE = 10 * 60 * 1e3;
 function spawnWorker(taskId, workerId, projectDir) {
   const cmd = process.env.KDD_SPAWN_CMD ?? DEFAULT_SPAWN_CMD;
@@ -315,19 +549,21 @@ program.command("tick").description("agent-mode: reclaim expired leases, claim r
   const ttl = Number(process.env.KDD_WORKER_TTL ?? 1800);
   if (!Number.isInteger(maxWorkers) || maxWorkers < 1) fail("KDD_MAX_WORKERS must be a positive integer", o.json);
   const onePass = () => {
-    const { dbPath, projectPath } = resolveDbPath2();
+    const { dbPath, projectPath } = resolveDbPath3();
     let release;
     try {
-      release = lockfile.lockSync(join(dirname(dbPath), "tick"), { stale: TICK_LOCK_STALE, realpath: false });
+      release = lockfile.lockSync(join(dirname2(dbPath), "tick"), { stale: TICK_LOCK_STALE, realpath: false });
     } catch (e) {
       if (e.code === "ELOCKED") return { skipped: true };
       throw e;
     }
     try {
-      const toplevel = resolveToplevel();
+      const toplevel = resolveToplevel2();
       return withDbAt(dbPath, projectPath, (db) => {
         const t = tick(db, { maxWorkers, ttl, projectDir: toplevel, spawn: spawnWorker });
-        return { ...t, reaped: sweepWorktrees(db, toplevel) };
+        const result = { ...t, reaped: sweepWorktrees(db, toplevel) };
+        writeTickLastRun(db, "tick", { reclaimed: t.reclaimed, spawned: t.spawned, active: t.active });
+        return result;
       });
     } finally {
       release();
@@ -388,8 +624,8 @@ program.command("worker").argument("<id>").description("agent-mode supervisor: r
   let db;
   try {
     const taskId = parseId(id);
-    const { dbPath, projectPath } = resolveDbPath2();
-    const toplevel = resolveToplevel();
+    const { dbPath, projectPath } = resolveDbPath3();
+    const toplevel = resolveToplevel2();
     const claudeCmd = process.env.KDD_CLAUDE_CMD ?? "claude";
     const allowed = process.env.KDD_ALLOWED_TOOLS ?? "Bash Read Edit Write Grep Glob";
     const [bin, ...pre] = claudeCmd.split(/\s+/);
@@ -513,8 +749,8 @@ program.command("ui").option("--port <n>", "port", "4499").action((o) => run(fal
   void uiStart(Number(o.port));
 }));
 async function uiStart(port) {
-  const { dbPath, projectPath } = resolveDbPath2();
-  const hash = basename(dirname(dbPath));
+  const { dbPath, projectPath } = resolveDbPath3();
+  const hash = basename2(dirname2(dbPath));
   openDb2(dbPath, projectPath).close();
   const url = `http://localhost:${port}?project=${hash}`;
   try {
@@ -589,7 +825,7 @@ track.command("rm").argument("<id>").option("--json").action((id, o) => run(o.js
   out(o.json, { ok: true }, () => `track #${parseId(id)} deleted`);
 }));
 program.command("projects").option("--json").action((o) => run(o.json, () => {
-  const ps = listProjects();
+  const ps = listProjects2();
   out(o.json, ps, () => ps.length ? ps.map((p) => `${p.projectPath}
   ${p.dbPath}`).join("\n") : "no projects");
 }));
@@ -597,4 +833,5 @@ program.command("export").action(() => run(true, () => {
   const dump = withDb((db) => exportBoard(db));
   console.log(JSON.stringify(dump));
 }));
+registerScheduleCommands(program);
 program.parse();

@@ -15,7 +15,8 @@ import {
   sweepWorktrees, taskDetail, taskDetailCapped, tick, unarchiveTask, unblockTask, type Status,
 } from '@kddkit/core';
 import { projectPool, startUi } from '@kddkit/ui';
-import { fail, getActor, parseId, withDb, withDbAt } from './context.js';
+import { fail, getActor, out, parseId, withDb, withDbAt } from './context.js';
+import { registerScheduleCommands, writeTickLastRun } from './schedule.js';
 import {
   renderBoard, renderClaim, renderCriteria, renderRecall, renderShow, renderStatus, renderTracks,
 } from './render.js';
@@ -23,10 +24,6 @@ import {
 const program = new Command()
   .name('kdd')
   .description('kanban substrate for humans and Claude');
-
-function out(json: boolean, obj: unknown, text: () => string): void {
-  console.log(json ? JSON.stringify(obj) : text());
-}
 
 function readBody(opts: { body?: string; bodyFile?: string }): string | undefined {
   if (opts.bodyFile) return readFileSync(opts.bodyFile, 'utf8');
@@ -203,7 +200,10 @@ program.command('tick')
           const t = tick(db, { maxWorkers, ttl, projectDir: toplevel, spawn: spawnWorker });
           // sweep ПОСЛЕ claim-loop: re-claimed задача уже in_progress → её worktree не тронут;
           // истинно брошенная (reclaim без re-claim) → status 'new' → worktree снесён.
-          return { ...t, reaped: sweepWorktrees(db, toplevel) };
+          const result = { ...t, reaped: sweepWorktrees(db, toplevel) };
+          // реальный проход (не skipped) — самоотчёт для `kdd schedule status`
+          writeTickLastRun(db, 'tick', { reclaimed: t.reclaimed, spawned: t.spawned, active: t.active });
+          return result;
         });
       } finally {
         release();
@@ -558,5 +558,7 @@ program.command('export')
     const dump = withDb((db) => exportBoard(db));
     console.log(JSON.stringify(dump));
   }));
+
+registerScheduleCommands(program);
 
 program.parse();

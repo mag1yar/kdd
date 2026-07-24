@@ -28,3 +28,7 @@ export function fail(msg: string, json: boolean): never {
   else console.error(`error: ${msg}`);
   process.exit(1);
 }
+
+export function out(json: boolean, obj: unknown, text: () => string): void {
+  console.log(json ? JSON.stringify(obj) : text());
+}

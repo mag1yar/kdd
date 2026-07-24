@@ -1261,9 +1261,35 @@ function sweepWorktrees(db, repoRoot) {
   if (removed) gitTry(repoRoot, ["worktree", "prune"]);
   return removed;
 }
+
+// src/meta.ts
+function getMeta(db, key) {
+  const row = db.prepare(`SELECT value FROM meta WHERE key = ?`).get(key);
+  return row?.value;
+}
+function setMeta(db, key, value) {
+  db.transaction(() => {
+    db.prepare(`INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)`).run(key, value);
+  })();
+}
+function setMetaMany(db, entries) {
+  db.transaction(() => {
+    const stmt = db.prepare(`INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)`);
+    for (const [k, v] of Object.entries(entries)) stmt.run(k, v);
+  })();
+}
+
+// src/schedule-jobs.ts
+var JOBS = [
+  { id: "tick", args: ["tick"], defaultIntervalMin: 15, minIntervalMin: 1 }
+];
+function findJob(id) {
+  return JOBS.find((j) => j.id === id);
+}
 export {
   CAPS,
   DEFAULT_TTL,
+  JOBS,
   KddError,
   MAX_FAILED_ATTEMPTS,
   MIGRATIONS,
@@ -1292,6 +1318,8 @@ export {
   editTrack,
   ensureWorktree,
   exportBoard,
+  findJob,
+  getMeta,
   headCommit,
   kddHome,
   lastAgentEventKind,
@@ -1324,6 +1352,8 @@ export {
   runProduced,
   sanitizeQuery,
   setCriterionChecked,
+  setMeta,
+  setMetaMany,
   slugify,
   statusDigest,
   sweepWorktrees,

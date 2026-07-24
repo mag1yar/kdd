@@ -23,6 +23,7 @@
   },
   "dependencies": {
     "@kddkit/core": "workspace:*",
+    "@kddkit/schedule": "workspace:*",
     "@kddkit/ui": "workspace:*",
     "commander": "^15.0.0",
     "proper-lockfile": "^4.1.2"

@@ -23,6 +23,9 @@ importers:
       '@kddkit/core':
         specifier: workspace:*
         version: link:../core
+      '@kddkit/schedule':
+        specifier: workspace:*
+        version: link:../schedule
       '@kddkit/ui':
         specifier: workspace:*
         version: link:../ui
@@ -86,6 +89,18 @@ importers:
       better-sqlite3:
         specifier: ^12.11.1
         version: 12.11.1
+      tsup:
+        specifier: ^8.5.1
+        version: 8.5.1(jiti@2.7.0)(postcss@8.5.19)(typescript@5.9.3)(yaml@2.9.0)
+      vitest:
+        specifier: ^4.1.10
+        version: 4.1.10(@types/node@22.20.1)(vite@8.1.4(@types/node@22.20.1)(esbuild@0.27.7)(jiti@2.7.0)(yaml@2.9.0))
+
+  packages/schedule:
+    devDependencies:
+      '@types/node':
+        specifier: ^22.18.0
+        version: 22.20.1
       tsup:
         specifier: ^8.5.1
         version: 8.5.1(jiti@2.7.0)(postcss@8.5.19)(typescript@5.9.3)(yaml@2.9.0)

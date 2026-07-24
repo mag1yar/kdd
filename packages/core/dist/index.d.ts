@@ -334,4 +334,17 @@ declare function taskBranchHead(repoRoot: string, taskId: number): string | null
 declare function ensureWorktree(repoRoot: string, dbPath: string, taskId: number, title: string): string;
 declare function sweepWorktrees(db: Database.Database, repoRoot: string): number;
 
-export { type Actor, type AgentEvent, type AgentEventKind, CAPS, type Comment, type Criterion, DEFAULT_TTL, type DecisionInput, type EventRow, KddError, MAX_FAILED_ATTEMPTS, MIGRATIONS, PRIORITIES, PRIORITY_ORDER, type ParsedDecision, type ParsedEvent, type Priority, type RecallHit, type RunResult, STATUSES, type SpawnFn, type Status, TRANSITIONS, type Task, type TaskDetailCapped, type TaskListRow, type TickResult, type Track, addCriterion, addDecision, addTask, appendAgentEvent, appendEvent, archiveTask, authorOf, blockTask, boardData, capText, checkMove, claimNext, claimTask, commentTask, contentHash, createTrack, deleteTrack, editTask, editTrack, ensureWorktree, exportBoard, headCommit, kddHome, lastAgentEventKind, linkTasks, listAgentEvents, listCriteria, listProjects, listTracks, logError, moveTask, mustGetTask, mustGetTrack, now, openDb, parseClaudeStreamLine, parseDecisionMd, placeTask, rebuild, recall, reclaimExpired, recordFailedAttempt, releaseClaim, removeCriterion, renderDecisionBody, renderDecisionMd, renewClaim, resolveDbPath, resolveDecisionsDir, resolveToplevel, runProduced, sanitizeQuery, setCriterionChecked, slugify, statusDigest, sweepWorktrees, syncIndex, taskBranchHead, taskDetail, taskDetailCapped, tick, unarchiveTask, unblockTask, worktreePath };
+declare function getMeta(db: Database.Database, key: string): string | undefined;
+declare function setMeta(db: Database.Database, key: string, value: string): void;
+declare function setMetaMany(db: Database.Database, entries: Record<string, string>): void;
+
+interface JobDef {
+    id: string;
+    args: string[];
+    defaultIntervalMin: number;
+    minIntervalMin: number;
+}
+declare const JOBS: readonly JobDef[];
+declare function findJob(id: string): JobDef | undefined;
+
+export { type Actor, type AgentEvent, type AgentEventKind, CAPS, type Comment, type Criterion, DEFAULT_TTL, type DecisionInput, type EventRow, JOBS, type JobDef, KddError, MAX_FAILED_ATTEMPTS, MIGRATIONS, PRIORITIES, PRIORITY_ORDER, type ParsedDecision, type ParsedEvent, type Priority, type RecallHit, type RunResult, STATUSES, type SpawnFn, type Status, TRANSITIONS, type Task, type TaskDetailCapped, type TaskListRow, type TickResult, type Track, addCriterion, addDecision, addTask, appendAgentEvent, appendEvent, archiveTask, authorOf, blockTask, boardData, capText, checkMove, claimNext, claimTask, commentTask, contentHash, createTrack, deleteTrack, editTask, editTrack, ensureWorktree, exportBoard, findJob, getMeta, headCommit, kddHome, lastAgentEventKind, linkTasks, listAgentEvents, listCriteria, listProjects, listTracks, logError, moveTask, mustGetTask, mustGetTrack, now, openDb, parseClaudeStreamLine, parseDecisionMd, placeTask, rebuild, recall, reclaimExpired, recordFailedAttempt, releaseClaim, removeCriterion, renderDecisionBody, renderDecisionMd, renewClaim, resolveDbPath, resolveDecisionsDir, resolveToplevel, runProduced, sanitizeQuery, setCriterionChecked, setMeta, setMetaMany, slugify, statusDigest, sweepWorktrees, syncIndex, taskBranchHead, taskDetail, taskDetailCapped, tick, unarchiveTask, unblockTask, worktreePath };

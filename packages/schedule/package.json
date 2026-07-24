@@ -1,0 +1,20 @@
+{
+  "name": "@kddkit/schedule",
+  "version": "0.4.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": ["dist"],
+  "publishConfig": { "access": "public" },
+  "license": "MIT",
+  "repository": { "type": "git", "url": "https://github.com/mag1yar/kddkit.git", "directory": "packages/schedule" },
+  "scripts": {
+    "build": "tsup src/index.ts --format esm --dts --clean",
+    "test": "vitest run --passWithNoTests"
+  },
+  "devDependencies": {
+    "@types/node": "^22.18.0",
+    "tsup": "^8.5.1",
+    "vitest": "^4.1.10"
+  }
+}

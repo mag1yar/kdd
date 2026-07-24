@@ -7,10 +7,14 @@ export function getActor(): Actor {
     : { type: 'user' };
 }
 
-export function withDb<T>(fn: (db: Database.Database) => T): T {
-  const { dbPath, projectPath } = resolveDbPath();
+export function withDbAt<T>(dbPath: string, projectPath: string, fn: (db: Database.Database) => T): T {
   const db = openDb(dbPath, projectPath);
   try { return fn(db); } finally { db.close(); }
+}
+
+export function withDb<T>(fn: (db: Database.Database) => T): T {
+  const { dbPath, projectPath } = resolveDbPath();
+  return withDbAt(dbPath, projectPath, fn);
 }
 
 export function parseId(s: string): number {

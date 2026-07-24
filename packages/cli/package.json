@@ -2,18 +2,34 @@
   "name": "@kddkit/cli",
   "version": "0.3.0",
   "type": "module",
-  "bin": { "kdd": "./dist/index.js" },
-  "files": ["dist"],
-  "publishConfig": { "access": "public" },
+  "bin": {
+    "kdd": "./dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "license": "MIT",
-  "repository": { "type": "git", "url": "https://github.com/mag1yar/kddkit.git", "directory": "packages/cli" },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mag1yar/kddkit.git",
+    "directory": "packages/cli"
+  },
   "scripts": {
     "build": "tsup src/index.ts --format esm --clean",
     "test": "vitest run --passWithNoTests"
   },
-  "dependencies": { "@kddkit/core": "workspace:*", "@kddkit/ui": "workspace:*", "commander": "^15.0.0" },
+  "dependencies": {
+    "@kddkit/core": "workspace:*",
+    "@kddkit/ui": "workspace:*",
+    "commander": "^15.0.0",
+    "proper-lockfile": "^4.1.2"
+  },
   "devDependencies": {
     "@types/node": "^22.18.0",
+    "@types/proper-lockfile": "^4.1.4",
     "tsup": "^8.5.1",
     "vitest": "^4.1.10"
   }

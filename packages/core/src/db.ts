@@ -115,6 +115,31 @@ export const MIGRATIONS: string[] = [
   ALTER TABLE events ADD COLUMN type TEXT;
   ALTER TABLE events ADD COLUMN level TEXT NOT NULL DEFAULT 'info';
   `,
+  `
+  -- claim-протокол: агент берёт задачу атомарно (CAS), lease с TTL.
+  -- Инвариант: claimed_by IS NOT NULL <=> status='in_progress'. Старые задачи: NULL.
+  ALTER TABLE tasks ADD COLUMN claimed_by TEXT;
+  ALTER TABLE tasks ADD COLUMN claim_expires INTEGER;
+  `,
+  `
+  -- driver-слайс: счётчик неудачных попыток агента (spawn-fail + непродуктивный reclaim).
+  -- reset при достижении review; при K попыток задача авто-блокируется. Старые задачи: 0.
+  ALTER TABLE tasks ADD COLUMN failed_attempts INTEGER NOT NULL DEFAULT 0;
+  `,
+  `
+  -- Tier1 feed: поток активности воркера (текст, tool-вызовы) отдельно от audit-events.
+  -- Изолирован намеренно: get_task/status/MCP его НЕ читают — иначе поток забьёт LLM-контекст.
+  CREATE TABLE agent_events (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id    INTEGER NOT NULL REFERENCES tasks(id),
+    worker_id  TEXT NOT NULL,
+    kind       TEXT NOT NULL,
+    name       TEXT,
+    detail     TEXT,
+    created_at INTEGER NOT NULL
+  );
+  CREATE INDEX idx_agent_events_task ON agent_events(task_id, id);
+  `,
 ];
 
 export function openDb(dbPath: string, projectPath?: string): Database.Database {

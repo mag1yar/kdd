@@ -148,6 +148,31 @@ var MIGRATIONS = [
   ALTER TABLE events ADD COLUMN parent_id INTEGER REFERENCES events(id);
   ALTER TABLE events ADD COLUMN type TEXT;
   ALTER TABLE events ADD COLUMN level TEXT NOT NULL DEFAULT 'info';
+  `,
+  `
+  -- claim-\u043F\u0440\u043E\u0442\u043E\u043A\u043E\u043B: \u0430\u0433\u0435\u043D\u0442 \u0431\u0435\u0440\u0451\u0442 \u0437\u0430\u0434\u0430\u0447\u0443 \u0430\u0442\u043E\u043C\u0430\u0440\u043D\u043E (CAS), lease \u0441 TTL.
+  -- \u0418\u043D\u0432\u0430\u0440\u0438\u0430\u043D\u0442: claimed_by IS NOT NULL <=> status='in_progress'. \u0421\u0442\u0430\u0440\u044B\u0435 \u0437\u0430\u0434\u0430\u0447\u0438: NULL.
+  ALTER TABLE tasks ADD COLUMN claimed_by TEXT;
+  ALTER TABLE tasks ADD COLUMN claim_expires INTEGER;
+  `,
+  `
+  -- driver-\u0441\u043B\u0430\u0439\u0441: \u0441\u0447\u0451\u0442\u0447\u0438\u043A \u043D\u0435\u0443\u0434\u0430\u0447\u043D\u044B\u0445 \u043F\u043E\u043F\u044B\u0442\u043E\u043A \u0430\u0433\u0435\u043D\u0442\u0430 (spawn-fail + \u043D\u0435\u043F\u0440\u043E\u0434\u0443\u043A\u0442\u0438\u0432\u043D\u044B\u0439 reclaim).
+  -- reset \u043F\u0440\u0438 \u0434\u043E\u0441\u0442\u0438\u0436\u0435\u043D\u0438\u0438 review; \u043F\u0440\u0438 K \u043F\u043E\u043F\u044B\u0442\u043E\u043A \u0437\u0430\u0434\u0430\u0447\u0430 \u0430\u0432\u0442\u043E-\u0431\u043B\u043E\u043A\u0438\u0440\u0443\u0435\u0442\u0441\u044F. \u0421\u0442\u0430\u0440\u044B\u0435 \u0437\u0430\u0434\u0430\u0447\u0438: 0.
+  ALTER TABLE tasks ADD COLUMN failed_attempts INTEGER NOT NULL DEFAULT 0;
+  `,
+  `
+  -- Tier1 feed: \u043F\u043E\u0442\u043E\u043A \u0430\u043A\u0442\u0438\u0432\u043D\u043E\u0441\u0442\u0438 \u0432\u043E\u0440\u043A\u0435\u0440\u0430 (\u0442\u0435\u043A\u0441\u0442, tool-\u0432\u044B\u0437\u043E\u0432\u044B) \u043E\u0442\u0434\u0435\u043B\u044C\u043D\u043E \u043E\u0442 audit-events.
+  -- \u0418\u0437\u043E\u043B\u0438\u0440\u043E\u0432\u0430\u043D \u043D\u0430\u043C\u0435\u0440\u0435\u043D\u043D\u043E: get_task/status/MCP \u0435\u0433\u043E \u041D\u0415 \u0447\u0438\u0442\u0430\u044E\u0442 \u2014 \u0438\u043D\u0430\u0447\u0435 \u043F\u043E\u0442\u043E\u043A \u0437\u0430\u0431\u044C\u0451\u0442 LLM-\u043A\u043E\u043D\u0442\u0435\u043A\u0441\u0442.
+  CREATE TABLE agent_events (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id    INTEGER NOT NULL REFERENCES tasks(id),
+    worker_id  TEXT NOT NULL,
+    kind       TEXT NOT NULL,
+    name       TEXT,
+    detail     TEXT,
+    created_at INTEGER NOT NULL
+  );
+  CREATE INDEX idx_agent_events_task ON agent_events(task_id, id);
   `
 ];
 function openDb(dbPath, projectPath) {
@@ -213,6 +238,18 @@ function resolveDecisionsDir(cwd = process.cwd()) {
   }
   return join(top, ".planning", "decisions");
 }
+function resolveToplevel(cwd = process.cwd()) {
+  if (process.env.KDD_TOPLEVEL) return process.env.KDD_TOPLEVEL;
+  try {
+    return execFileSync(
+      "git",
+      ["rev-parse", "--show-toplevel"],
+      { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }
+    ).trim();
+  } catch {
+    throw new KddError("not in a git repository (kdd tick resolves worker cwd via git)");
+  }
+}
 function listProjects() {
   const home = kddHome();
   if (!existsSync(home)) return [];
@@ -242,10 +279,16 @@ var TRANSITIONS = {
   review: ["in_progress", "done"],
   done: ["review"]
 };
-function checkMove(from, to, actor, reason, openCriteria2 = 0) {
+function checkMove(from, to, actor, reason, openCriteria2 = 0, claimedBy = null) {
   if (from === to) return { ok: false, error: `task is already in ${to}` };
   if (actor.type === "user") return { ok: true };
   if (reason) return { ok: true };
+  if (from === "in_progress" && claimedBy?.startsWith("ai:") && claimedBy !== `ai:${actor.id ?? "?"}`) {
+    return {
+      ok: false,
+      error: `lease lost (held by ${claimedBy}); you no longer own this task \u2014 stop work`
+    };
+  }
   if (!TRANSITIONS[from].includes(to)) {
     return {
       ok: false,
@@ -419,9 +462,14 @@ function moveTask(db, id, to, actor, reason) {
   checkStatus(to);
   return db.transaction(() => {
     const t = mustGetTask(db, id);
-    const res = checkMove(t.status, to, actor, reason, openCriteria(db, id));
+    const res = checkMove(t.status, to, actor, reason, openCriteria(db, id), t.claimed_by);
     if (!res.ok) throw new KddError(res.error);
-    db.prepare(`UPDATE tasks SET status = ?, position = ?, updated_at = ? WHERE id = ?`).run(to, nextPosition(db, to), now(), id);
+    const leaving = t.status === "in_progress" && to !== "in_progress";
+    const reset = to === "review";
+    db.prepare(
+      `UPDATE tasks SET status = ?, position = ?, updated_at = ?${leaving ? ", claimed_by = NULL, claim_expires = NULL" : ""}${reset ? ", failed_attempts = 0" : ""}
+       WHERE id = ?`
+    ).run(to, nextPosition(db, to), now(), id);
     appendEvent(
       db,
       id,
@@ -442,13 +490,18 @@ function placeTask(db, id, to, orderedIds, actor) {
   return db.transaction(() => {
     const t = mustGetTask(db, id);
     if (t.status !== to) {
-      const res = checkMove(t.status, to, actor, void 0, openCriteria(db, id));
+      const res = checkMove(t.status, to, actor, void 0, openCriteria(db, id), t.claimed_by);
       if (!res.ok) throw new KddError(res.error);
       appendEvent(db, id, actor, "moved", { from: t.status, to });
     }
     const setPos = db.prepare(`UPDATE tasks SET position = ? WHERE id = ?`);
     orderedIds.forEach((tid, i) => setPos.run(i, tid));
-    db.prepare(`UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?`).run(to, now(), id);
+    const leaving = t.status === "in_progress" && to !== "in_progress";
+    const reset = to === "review";
+    db.prepare(
+      `UPDATE tasks SET status = ?, updated_at = ?${leaving ? ", claimed_by = NULL, claim_expires = NULL" : ""}${reset ? ", failed_attempts = 0" : ""}
+       WHERE id = ?`
+    ).run(to, now(), id);
     return mustGetTask(db, id);
   })();
 }
@@ -853,16 +906,375 @@ function exportBoard(db) {
     events: db.prepare(`SELECT * FROM events ORDER BY id`).all()
   };
 }
+
+// src/agent_events.ts
+function parseClaudeStreamLine(line) {
+  const s = line.trim();
+  if (!s) return [];
+  let msg;
+  try {
+    msg = JSON.parse(s);
+  } catch {
+    return [];
+  }
+  if (msg?.type === "assistant" && Array.isArray(msg.message?.content)) {
+    const out = [];
+    for (const b of msg.message.content) {
+      if (b?.type === "text" && typeof b.text === "string") out.push({ kind: "text", detail: { text: b.text } });
+      else if (b?.type === "tool_use") out.push({ kind: "tool_start", name: b.name, detail: { input: b.input } });
+    }
+    return out;
+  }
+  if (msg?.type === "user" && Array.isArray(msg.message?.content)) {
+    const out = [];
+    for (const b of msg.message.content) {
+      if (b?.type === "tool_result") out.push({ kind: "tool_finish", detail: { output: b.content, isError: !!b.is_error } });
+    }
+    return out;
+  }
+  return [];
+}
+function appendAgentEvent(db, taskId, workerId, kind, opts) {
+  return db.transaction(() => {
+    const r = db.prepare(
+      `INSERT INTO agent_events (task_id, worker_id, kind, name, detail, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    ).run(
+      taskId,
+      workerId,
+      kind,
+      opts?.name ?? null,
+      opts?.detail ? JSON.stringify(opts.detail) : null,
+      now()
+    );
+    return Number(r.lastInsertRowid);
+  })();
+}
+function listAgentEvents(db, taskId, opts) {
+  return db.prepare(
+    `SELECT * FROM agent_events WHERE task_id = ? AND id > ? ORDER BY id LIMIT ?`
+  ).all(taskId, opts?.sinceId ?? 0, opts?.limit ?? 500);
+}
+function lastAgentEventKind(db, taskId, workerId) {
+  const r = db.prepare(
+    `SELECT kind FROM agent_events WHERE task_id = ? AND worker_id = ? ORDER BY id DESC LIMIT 1`
+  ).get(taskId, workerId);
+  return r?.kind ?? null;
+}
+function runProduced(db, taskId) {
+  const end = db.prepare(
+    `SELECT id, detail FROM agent_events WHERE task_id = ? AND kind = 'run_end' ORDER BY id DESC LIMIT 1`
+  ).get(taskId);
+  if (!end) return null;
+  const dangling = db.prepare(
+    `SELECT 1 FROM agent_events WHERE task_id = ? AND kind = 'run_start' AND id > ? LIMIT 1`
+  ).get(taskId, end.id);
+  if (dangling) return null;
+  const start = db.prepare(
+    `SELECT detail FROM agent_events WHERE task_id = ? AND kind = 'run_start' AND id < ? ORDER BY id DESC LIMIT 1`
+  ).get(taskId, end.id);
+  if (!start) return null;
+  const before = headOf(start.detail);
+  const after = headOf(end.detail);
+  if (before === null || after === null) return null;
+  return { before, after, committed: before !== after };
+}
+function headOf(detail) {
+  if (!detail) return null;
+  try {
+    const h = JSON.parse(detail).head;
+    return typeof h === "string" ? h : null;
+  } catch {
+    return null;
+  }
+}
+
+// src/claim.ts
+var DEFAULT_TTL = 15 * 60;
+var SYSTEM = { type: "ai", id: "system" };
+var MAX_FAILED_ATTEMPTS = 3;
+function recordFailedAttempt(db, id, actor, reason) {
+  db.prepare(`UPDATE tasks SET failed_attempts = failed_attempts + 1, updated_at = ? WHERE id = ?`).run(now(), id);
+  const fa = db.prepare(`SELECT failed_attempts FROM tasks WHERE id = ?`).get(id).failed_attempts;
+  if (fa >= MAX_FAILED_ATTEMPTS) {
+    db.prepare(`UPDATE tasks SET blocked = 1, block_reason = ?, updated_at = ? WHERE id = ?`).run(`${fa} failed attempts (agent driver): ${reason}`, now(), id);
+    appendEvent(
+      db,
+      id,
+      actor,
+      "blocked",
+      { reason: `${fa} failed attempts`, last: reason },
+      { type: "claim", level: "error" }
+    );
+  }
+}
+function releaseClaim(db, id, actor, reason) {
+  db.transaction(() => {
+    db.prepare(
+      `UPDATE tasks SET status='new', claimed_by=NULL, claim_expires=NULL, updated_at=? WHERE id=?`
+    ).run(now(), id);
+    appendEvent(db, id, actor, "released", { reason }, { type: "claim", level: "warn" });
+    recordFailedAttempt(db, id, actor, reason);
+  })();
+}
+function assertTtl(ttl) {
+  if (!Number.isFinite(ttl) || ttl <= 0) throw new KddError(`invalid ttl '${ttl}' (seconds > 0)`);
+}
+var CLAIMABLE_SQL = `status = 'new' AND blocked = 0 AND archived_at IS NULL AND claimed_by IS NULL
+   AND (SELECT COUNT(*) FROM criteria WHERE criteria.task_id = tasks.id) > 0`;
+var criteriaCount = (db, id) => db.prepare(`SELECT COUNT(*) c FROM criteria WHERE task_id = ?`).get(id).c;
+function reclaimExpired(db) {
+  const t = now();
+  const expired = db.prepare(
+    `SELECT id, claimed_by FROM tasks
+     WHERE status = 'in_progress' AND claim_expires IS NOT NULL AND claim_expires < ?`
+  ).all(t);
+  const clear = db.prepare(
+    `UPDATE tasks SET status='new', claimed_by=NULL, claim_expires=NULL, updated_at=? WHERE id=?`
+  );
+  for (const e of expired) {
+    clear.run(t, e.id);
+    appendEvent(db, e.id, SYSTEM, "reclaimed", { former: e.claimed_by }, { type: "claim", level: "warn" });
+    if (e.claimed_by?.startsWith("ai:tick:")) {
+      recordFailedAttempt(db, e.id, SYSTEM, "lease expired without progress");
+      try {
+        closeOrphanRun(db, e.id, e.claimed_by);
+      } catch {
+      }
+    }
+  }
+  return expired.map((e) => e.id);
+}
+function closeOrphanRun(db, taskId, claimedBy) {
+  const wid = claimedBy.slice(3);
+  const last = lastAgentEventKind(db, taskId, wid);
+  if (last === "run_end") return;
+  if (last === null) {
+    appendAgentEvent(
+      db,
+      taskId,
+      wid,
+      "error",
+      { detail: { message: "worker never started (spawn or worktree setup failed) \u2014 lease expired, reclaimed by driver" } }
+    );
+    return;
+  }
+  appendAgentEvent(
+    db,
+    taskId,
+    wid,
+    "error",
+    { detail: { message: "worker died (SIGKILL/OOM/reboot) \u2014 lease expired, reclaimed by driver" } }
+  );
+  appendAgentEvent(db, taskId, wid, "run_end", { detail: { exitCode: null } });
+}
+function claimTask(db, id, actor, ttl = DEFAULT_TTL) {
+  assertTtl(ttl);
+  return db.transaction(() => {
+    reclaimExpired(db);
+    const t = mustGetTask(db, id);
+    if (criteriaCount(db, id) === 0) {
+      appendEvent(
+        db,
+        id,
+        actor,
+        "claim_rejected",
+        { reason: "no acceptance criteria" },
+        { type: "claim", level: "warn" }
+      );
+      return { ok: false, error: `cannot claim #${id}: no acceptance criteria (define done first)` };
+    }
+    const expires = now() + ttl;
+    const r = db.prepare(
+      `UPDATE tasks SET status='in_progress', claimed_by=?, claim_expires=?, updated_at=?
+       WHERE id=? AND status='new' AND blocked=0 AND archived_at IS NULL AND claimed_by IS NULL`
+    ).run(authorOf(actor), expires, now(), id);
+    if (r.changes !== 1) {
+      return {
+        ok: false,
+        error: `#${id} is not claimable (status ${t.status}${t.claimed_by ? `, held by ${t.claimed_by}` : ""})`
+      };
+    }
+    appendEvent(db, id, actor, "claimed", { ttl, expires }, { type: "claim" });
+    return { ok: true, task: mustGetTask(db, id) };
+  })();
+}
+function claimNext(db, actor, ttl = DEFAULT_TTL, opts = {}) {
+  assertTtl(ttl);
+  return db.transaction(() => {
+    if (opts.reclaim !== false) reclaimExpired(db);
+    const rows = db.prepare(
+      `SELECT id FROM tasks WHERE ${CLAIMABLE_SQL} ORDER BY ${PRIORITY_ORDER}, created_at, id`
+    ).all();
+    for (const { id } of rows) {
+      const expires = now() + ttl;
+      const r = db.prepare(
+        `UPDATE tasks SET status='in_progress', claimed_by=?, claim_expires=?, updated_at=?
+         WHERE id=? AND status='new' AND blocked=0 AND archived_at IS NULL AND claimed_by IS NULL`
+      ).run(authorOf(actor), expires, now(), id);
+      if (r.changes === 1) {
+        appendEvent(db, id, actor, "claimed", { ttl, expires }, { type: "claim" });
+        return mustGetTask(db, id);
+      }
+    }
+    return null;
+  })();
+}
+function renewClaim(db, id, actor, ttl = DEFAULT_TTL) {
+  assertTtl(ttl);
+  return db.transaction(() => {
+    mustGetTask(db, id);
+    const expires = now() + ttl;
+    const r = db.prepare(
+      `UPDATE tasks SET claim_expires=?, updated_at=? WHERE id=? AND claimed_by=?`
+    ).run(expires, now(), id, authorOf(actor));
+    if (r.changes !== 1) {
+      return {
+        ok: false,
+        error: `#${id} not held by ${authorOf(actor)} (lease lost or reclaimed) \u2014 stop work`
+      };
+    }
+    appendEvent(db, id, actor, "claim_renewed", { ttl, expires }, { type: "claim" });
+    return { ok: true, task: mustGetTask(db, id) };
+  })();
+}
+
+// src/driver.ts
+function activeWorkers(db) {
+  return db.prepare(
+    `SELECT COUNT(*) c FROM tasks WHERE status='in_progress' AND claimed_by IS NOT NULL`
+  ).get().c;
+}
+function tick(db, opts) {
+  const reclaimed = db.transaction(() => reclaimExpired(db))().length;
+  let active = activeWorkers(db);
+  let spawned = 0;
+  const nonce = now();
+  while (active < opts.maxWorkers) {
+    const workerId = `tick:${nonce}-${spawned}`;
+    const t = claimNext(db, { type: "ai", id: workerId }, opts.ttl, { reclaim: false });
+    if (!t) break;
+    try {
+      opts.spawn(t.id, workerId, opts.projectDir);
+      active++;
+      spawned++;
+    } catch (e) {
+      releaseClaim(
+        db,
+        t.id,
+        { type: "ai", id: workerId },
+        `spawn failed: ${e instanceof Error ? e.message : String(e)}`
+      );
+      break;
+    }
+  }
+  return { reclaimed, spawned, active };
+}
+
+// src/worktree.ts
+import { execFileSync as execFileSync2 } from "child_process";
+import { existsSync as existsSync4, realpathSync, rmSync } from "fs";
+import { dirname as dirname2, join as join4 } from "path";
+var branchName = (taskId) => `kdd/task-${taskId}`;
+var BRANCH_RE = /^refs\/heads\/kdd\/task-(\d+)$/;
+function git(repoRoot, args) {
+  try {
+    return execFileSync2("git", args, {
+      cwd: repoRoot,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"]
+    }).trim();
+  } catch (e) {
+    const err = e;
+    const detail = (err.stderr ?? "").trim() || err.message || "git failed";
+    throw new Error(`git ${args.join(" ")}: ${detail}`);
+  }
+}
+function gitTry(repoRoot, args) {
+  try {
+    git(repoRoot, args);
+  } catch {
+  }
+}
+function worktreePath(dbPath, taskId, title) {
+  const root = dirname2(dbPath);
+  const realRoot = existsSync4(root) ? realpathSync(root) : root;
+  return join4(realRoot, "worktrees", `task-${taskId}-${slugify(title)}`);
+}
+function headCommit(repoRoot) {
+  return git(repoRoot, ["rev-parse", "HEAD"]);
+}
+function taskBranchHead(repoRoot, taskId) {
+  try {
+    return git(repoRoot, ["rev-parse", "--verify", "--quiet", `refs/heads/${branchName(taskId)}`]);
+  } catch {
+    return null;
+  }
+}
+function listWorktrees(repoRoot) {
+  const out = git(repoRoot, ["worktree", "list", "--porcelain"]);
+  const entries = [];
+  let cur = null;
+  for (const line of out.split("\n")) {
+    if (line.startsWith("worktree ")) {
+      if (cur) entries.push(cur);
+      cur = { path: line.slice(9), branch: null };
+    } else if (line.startsWith("branch ") && cur) {
+      cur.branch = line.slice(7);
+    }
+  }
+  if (cur) entries.push(cur);
+  return entries;
+}
+function branchExists(repoRoot, branch) {
+  try {
+    git(repoRoot, ["show-ref", "--verify", "--quiet", `refs/heads/${branch}`]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+function ensureWorktree(repoRoot, dbPath, taskId, title) {
+  const branch = branchName(taskId);
+  const ref = `refs/heads/${branch}`;
+  const existing = listWorktrees(repoRoot).find((e) => e.branch === ref);
+  if (existing && existsSync4(existing.path)) return existing.path;
+  if (existing) gitTry(repoRoot, ["worktree", "remove", "--force", existing.path]);
+  const path = worktreePath(dbPath, taskId, title);
+  gitTry(repoRoot, ["worktree", "prune"]);
+  rmSync(path, { recursive: true, force: true });
+  const tail = branchExists(repoRoot, branch) ? [path, branch] : [path, "-b", branch];
+  git(repoRoot, ["worktree", "add", ...tail]);
+  return path;
+}
+function sweepWorktrees(db, repoRoot) {
+  const stmt = db.prepare(`SELECT status FROM tasks WHERE id = ?`);
+  let removed = 0;
+  for (const e of listWorktrees(repoRoot)) {
+    const m = e.branch?.match(BRANCH_RE);
+    if (!m) continue;
+    const row = stmt.get(Number(m[1]));
+    if (row?.status === "in_progress") continue;
+    gitTry(repoRoot, ["worktree", "remove", "--force", e.path]);
+    removed++;
+  }
+  if (removed) gitTry(repoRoot, ["worktree", "prune"]);
+  return removed;
+}
 export {
   CAPS,
+  DEFAULT_TTL,
   KddError,
+  MAX_FAILED_ATTEMPTS,
   MIGRATIONS,
   PRIORITIES,
+  PRIORITY_ORDER,
   STATUSES,
   TRANSITIONS,
   addCriterion,
   addDecision,
   addTask,
+  appendAgentEvent,
   appendEvent,
   archiveTask,
   authorOf,
@@ -870,15 +1282,21 @@ export {
   boardData,
   capText,
   checkMove,
+  claimNext,
+  claimTask,
   commentTask,
   contentHash,
   createTrack,
   deleteTrack,
   editTask,
   editTrack,
+  ensureWorktree,
   exportBoard,
+  headCommit,
   kddHome,
+  lastAgentEventKind,
   linkTasks,
+  listAgentEvents,
   listCriteria,
   listProjects,
   listTracks,
@@ -888,22 +1306,33 @@ export {
   mustGetTrack,
   now,
   openDb,
+  parseClaudeStreamLine,
   parseDecisionMd,
   placeTask,
   rebuild,
   recall,
+  reclaimExpired,
+  recordFailedAttempt,
+  releaseClaim,
   removeCriterion,
   renderDecisionBody,
   renderDecisionMd,
+  renewClaim,
   resolveDbPath,
   resolveDecisionsDir,
+  resolveToplevel,
+  runProduced,
   sanitizeQuery,
   setCriterionChecked,
   slugify,
   statusDigest,
+  sweepWorktrees,
   syncIndex,
+  taskBranchHead,
   taskDetail,
   taskDetailCapped,
+  tick,
   unarchiveTask,
-  unblockTask
+  unblockTask,
+  worktreePath
 };

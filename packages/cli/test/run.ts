@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const BIN = fileURLToPath(new URL('../dist/index.js', import.meta.url));
+export const BIN = fileURLToPath(new URL('../dist/index.js', import.meta.url));
 
 export function makeEnv(): NodeJS.ProcessEnv {
   const dir = mkdtempSync(join(tmpdir(), 'kdd-cli-'));

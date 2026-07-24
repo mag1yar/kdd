@@ -3,36 +3,54 @@
 // src/index.ts
 import { Command } from "commander";
 import { readFileSync } from "fs";
-import { basename, dirname } from "path";
+import { basename, dirname, join } from "path";
+import { spawn as spawnProcess } from "child_process";
+import { createInterface } from "readline";
+import { fileURLToPath } from "url";
+import lockfile from "proper-lockfile";
 import {
   KddError as KddError2,
   addCriterion,
   addDecision,
   addTask,
+  appendAgentEvent,
   archiveTask,
   blockTask,
   boardData,
+  claimNext,
+  claimTask,
   commentTask,
   createTrack,
   deleteTrack,
+  DEFAULT_TTL,
   editTask,
   editTrack,
+  ensureWorktree,
   exportBoard,
+  headCommit,
   linkTasks,
+  listAgentEvents,
   listCriteria,
   listProjects,
+  taskBranchHead,
   listTracks,
   moveTask,
+  mustGetTask,
   openDb as openDb2,
+  parseClaudeStreamLine,
   rebuild,
   recall,
   removeCriterion,
+  renewClaim,
   resolveDbPath as resolveDbPath2,
   resolveDecisionsDir,
+  resolveToplevel,
   setCriterionChecked,
   statusDigest,
+  sweepWorktrees,
   taskDetail,
   taskDetailCapped,
+  tick,
   unarchiveTask,
   unblockTask
 } from "@kddkit/core";
@@ -43,14 +61,17 @@ import { KddError, openDb, resolveDbPath } from "@kddkit/core";
 function getActor() {
   return process.env.KDD_ACTOR === "ai" ? { type: "ai", id: process.env.KDD_SESSION } : { type: "user" };
 }
-function withDb(fn) {
-  const { dbPath, projectPath } = resolveDbPath();
+function withDbAt(dbPath, projectPath, fn) {
   const db = openDb(dbPath, projectPath);
   try {
     return fn(db);
   } finally {
     db.close();
   }
+}
+function withDb(fn) {
+  const { dbPath, projectPath } = resolveDbPath();
+  return withDbAt(dbPath, projectPath, fn);
 }
 function parseId(s) {
   const n = Number(s.replace(/^#/, ""));
@@ -70,6 +91,10 @@ import {
   capText as cap,
   now
 } from "@kddkit/core";
+function renderClaim(t, verb) {
+  const left = t.claim_expires ? Math.max(0, Math.round((t.claim_expires - now()) / 60)) : 0;
+  return `#${t.id} ${verb} by ${t.claimed_by ?? "?"} (expires in ${left}m)`;
+}
 function renderAge(epoch) {
   const d = now() - epoch;
   if (d < 3600) return `${Math.max(1, Math.floor(d / 60))}m`;
@@ -182,6 +207,25 @@ function readBody(opts) {
   if (opts.body === "-") return readFileSync(0, "utf8");
   return opts.body;
 }
+var WORKER_PROMPT = process.env.KDD_WORKER_PROMPT ?? `You are a kdd agent worker. Read your task: run \`kdd show $KDD_TASK_ID\`. Do the work in this repository. Renew your lease periodically with \`kdd claim $KDD_TASK_ID --renew\` \u2014 if that errors you have LOST the lease, stop immediately. When done, leave ONE concise summary comment (\`kdd comment $KDD_TASK_ID "<what you changed and why; caveats or follow-ups>"\`) \u2014 this is the durable note humans and future sessions read, so keep it tight, not a log. Then check acceptance criteria (\`kdd criteria check\`) and \`kdd move $KDD_TASK_ID review\`. If you get blocked or must stop early, comment the reason first.`;
+var sq = (s) => `'${s.replace(/'/g, `'\\''`)}'`;
+var DEFAULT_SPAWN_CMD = `${sq(process.execPath)} ${sq(fileURLToPath(import.meta.url))} worker "$KDD_TASK_ID"`;
+var TICK_LOCK_STALE = 10 * 60 * 1e3;
+function spawnWorker(taskId, workerId, projectDir) {
+  const cmd = process.env.KDD_SPAWN_CMD ?? DEFAULT_SPAWN_CMD;
+  const shell = process.env.SHELL || "/bin/sh";
+  const child = spawnProcess(shell, ["-lc", cmd], {
+    cwd: projectDir,
+    env: { ...process.env, KDD_TASK_ID: String(taskId), KDD_ACTOR: "ai", KDD_SESSION: workerId },
+    detached: true,
+    stdio: "ignore"
+  });
+  child.on("error", (e) => {
+    process.stderr.write(`kdd tick: worker spawn failed for task ${taskId}: ${e.message}
+`);
+  });
+  child.unref();
+}
 function run(json, fn) {
   try {
     fn();
@@ -241,6 +285,178 @@ program.command("show").argument("<id>").option("--json").action((id, o) => run(
 program.command("move").argument("<id>").argument("<status>").option("--reason <text>", "why the transition skips the matrix (ai)").option("--json").action((id, status, o) => run(o.json, () => {
   const t = withDb((db) => moveTask(db, parseId(id), status, getActor(), o.reason));
   out(o.json, t, () => `#${t.id} \u2192 ${t.status}`);
+}));
+program.command("claim").argument("[id]", "task id to claim; omit when using --next").option("--next", "claim the top ready task from the queue").option("--renew", "renew the lease on a task you already hold").option("--ttl <seconds>", "lease length in seconds", String(DEFAULT_TTL)).option("--json").action((id, o) => run(o.json, () => {
+  const ttl = Number(o.ttl);
+  const actor = getActor();
+  if (o.next) {
+    const t = withDb((db) => claimNext(db, actor, ttl));
+    if (!t) {
+      out(o.json, { task: null }, () => "no ready task");
+      return;
+    }
+    out(o.json, t, () => renderClaim(t, "claimed"));
+    return;
+  }
+  if (!id) throw new KddError2("give a task id or use --next");
+  const res = withDb((db) => o.renew ? renewClaim(db, parseId(id), actor, ttl) : claimTask(db, parseId(id), actor, ttl));
+  if (!res.ok) {
+    fail(res.error, o.json);
+    return;
+  }
+  out(o.json, res.task, () => renderClaim(res.task, o.renew ? "renewed" : "claimed"));
+}));
+program.command("tick").description("agent-mode: reclaim expired leases, claim ready tasks, spawn workers").option("--json").option("--watch", "loop until SIGINT/SIGTERM instead of a single pass").option("--interval <sec>", "seconds between passes in --watch mode", "30").action(async (o) => {
+  const intervalMs = Number(o.interval) * 1e3;
+  if (o.watch && (!Number.isFinite(intervalMs) || intervalMs <= 0)) {
+    fail(`--interval must be a positive number of seconds (got '${o.interval}')`, o.json);
+  }
+  const maxWorkers = Number(process.env.KDD_MAX_WORKERS ?? 3);
+  const ttl = Number(process.env.KDD_WORKER_TTL ?? 1800);
+  if (!Number.isInteger(maxWorkers) || maxWorkers < 1) fail("KDD_MAX_WORKERS must be a positive integer", o.json);
+  const onePass = () => {
+    const { dbPath, projectPath } = resolveDbPath2();
+    let release;
+    try {
+      release = lockfile.lockSync(join(dirname(dbPath), "tick"), { stale: TICK_LOCK_STALE, realpath: false });
+    } catch (e) {
+      if (e.code === "ELOCKED") return { skipped: true };
+      throw e;
+    }
+    try {
+      const toplevel = resolveToplevel();
+      return withDbAt(dbPath, projectPath, (db) => {
+        const t = tick(db, { maxWorkers, ttl, projectDir: toplevel, spawn: spawnWorker });
+        return { ...t, reaped: sweepWorktrees(db, toplevel) };
+      });
+    } finally {
+      release();
+    }
+  };
+  const print = (r) => {
+    const ts = o.watch ? (/* @__PURE__ */ new Date()).toISOString() : "";
+    out(o.json, o.watch ? { ...r, ts } : r, () => {
+      const stamp = o.watch ? `[${ts}] ` : "";
+      return r.skipped ? `${stamp}tick: locked (another tick running)` : `${stamp}tick: reclaimed ${r.reclaimed}, spawned ${r.spawned}, active ${r.active}, reaped ${r.reaped}`;
+    });
+  };
+  const pass = () => {
+    try {
+      print(onePass());
+    } catch (e) {
+      const msg = e instanceof KddError2 ? e.message : String(e);
+      if (!o.watch) fail(msg, o.json);
+      process.stderr.write(`[${(/* @__PURE__ */ new Date()).toISOString()}] tick error: ${msg}
+`);
+    }
+  };
+  if (!o.watch) {
+    pass();
+    return;
+  }
+  let stop = false;
+  let wake;
+  const onSig = () => {
+    stop = true;
+    wake?.();
+  };
+  process.on("SIGINT", onSig);
+  process.on("SIGTERM", onSig);
+  try {
+    while (!stop) {
+      pass();
+      if (stop) break;
+      await new Promise((res) => {
+        const timer = setTimeout(() => {
+          wake = void 0;
+          res();
+        }, intervalMs);
+        wake = () => {
+          clearTimeout(timer);
+          wake = void 0;
+          res();
+        };
+      });
+    }
+  } finally {
+    process.off("SIGINT", onSig);
+    process.off("SIGTERM", onSig);
+  }
+});
+program.command("worker").argument("<id>").description("agent-mode supervisor: run claude on a task, ingest its stream into agent_events").action(async (id) => {
+  const workerId = process.env.KDD_SESSION ?? `manual:${process.pid}`;
+  let db;
+  try {
+    const taskId = parseId(id);
+    const { dbPath, projectPath } = resolveDbPath2();
+    const toplevel = resolveToplevel();
+    const claudeCmd = process.env.KDD_CLAUDE_CMD ?? "claude";
+    const allowed = process.env.KDD_ALLOWED_TOOLS ?? "Bash Read Edit Write Grep Glob";
+    const [bin, ...pre] = claudeCmd.split(/\s+/);
+    const args = [
+      ...pre,
+      "-p",
+      WORKER_PROMPT,
+      "--output-format",
+      "stream-json",
+      "--verbose",
+      "--allowedTools",
+      allowed
+    ];
+    db = openDb2(dbPath, projectPath);
+    const task = mustGetTask(db, taskId);
+    const workdir = ensureWorktree(toplevel, dbPath, taskId, task.title);
+    await new Promise((resolve) => {
+      appendAgentEvent(db, taskId, workerId, "run_start", { detail: { head: headCommit(workdir) } });
+      const child = spawnProcess(bin, args, {
+        cwd: workdir,
+        stdio: ["ignore", "pipe", "inherit"],
+        // KDD_ACTOR/KDD_SESSION НЕ хардкодим здесь — они текут из окружения самого воркера.
+        // Tick-путь: tick уже выставил их (ai / tick:<nonce>-<i>) на процессе воркера, ...process.env
+        // их пробрасывает — ai-gating на move-to-review сохраняется. Ручной `kdd worker <id>`
+        // (без claim) — debug-aid для feed: наследует user-актора из шелла, никого не гейтит.
+        // Полное продвижение задачи вручную требует предварительного `kdd claim` под тем же
+        // KDD_SESSION — воркер claim'ом сознательно не владеет, им владеет tick.
+        env: { ...process.env, KDD_TASK_ID: String(taskId) }
+      });
+      let ended = false;
+      const end = (exitCode) => {
+        if (ended) return;
+        ended = true;
+        let head;
+        try {
+          head = taskBranchHead(toplevel, taskId) ?? headCommit(workdir);
+        } catch {
+        }
+        appendAgentEvent(db, taskId, workerId, "run_end", { detail: { exitCode, head } });
+        resolve();
+      };
+      child.on("error", (e) => {
+        appendAgentEvent(db, taskId, workerId, "error", { detail: { message: e.message } });
+        end(null);
+      });
+      const rl = createInterface({ input: child.stdout });
+      rl.on("line", (line) => {
+        for (const ev of parseClaudeStreamLine(line)) appendAgentEvent(db, taskId, workerId, ev.kind, ev);
+      });
+      child.on("close", (code) => {
+        rl.close();
+        end(code);
+      });
+    });
+  } catch (e) {
+    db?.close();
+    fail(e instanceof KddError2 ? e.message : String(e), false);
+  }
+  db?.close();
+});
+program.command("feed").argument("<id>").option("--since <n>", "only events after this id").option("--json").action((id, o) => run(o.json, () => {
+  const rows = withDb((db) => listAgentEvents(
+    db,
+    parseId(id),
+    { sinceId: o.since ? Number(o.since) : 0 }
+  ));
+  out(o.json, rows, () => rows.map((e) => `${e.kind}${e.name ? " " + e.name : ""}${e.detail ? " " + e.detail : ""}`).join("\n") || "no activity");
 }));
 program.command("edit").argument("<id>").option("--title <t>").option("--body <md>").option("--body-file <path>").option("--priority <p>").option("--area <a>").option("--track <id>", 'track id, or "none" to detach').option("--json").action((id, o) => run(o.json, () => {
   const track_id = o.track === void 0 ? void 0 : o.track === "none" ? null : parseId(o.track);

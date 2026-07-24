@@ -34,6 +34,7 @@ declare function resolveDbPath(cwd?: string): {
     projectPath: string;
 };
 declare function resolveDecisionsDir(cwd?: string): string;
+declare function resolveToplevel(cwd?: string): string;
 declare function listProjects(): {
     dbPath: string;
     projectPath: string;
@@ -48,7 +49,7 @@ type Actor = {
     id?: string;
 };
 declare const TRANSITIONS: Record<Status, Status[]>;
-declare function checkMove(from: Status, to: Status, actor: Actor, reason?: string, openCriteria?: number): {
+declare function checkMove(from: Status, to: Status, actor: Actor, reason?: string, openCriteria?: number, claimedBy?: string | null): {
     ok: true;
 } | {
     ok: false;
@@ -65,6 +66,9 @@ interface Task {
     priority: Priority;
     area: string | null;
     track_id: number | null;
+    claimed_by: string | null;
+    claim_expires: number | null;
+    failed_attempts: number;
     position: number;
     archived_at: number | null;
     created_at: number;
@@ -210,6 +214,7 @@ declare function rebuild(db: Database.Database, decisionsDir: string): {
     tasks: number;
 };
 
+declare const PRIORITY_ORDER = "CASE priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END";
 declare function boardData(db: Database.Database, f?: {
     area?: string;
     status?: Status;
@@ -255,4 +260,78 @@ declare function exportBoard(db: Database.Database): {
     events: EventRow[];
 };
 
-export { type Actor, CAPS, type Comment, type Criterion, type DecisionInput, type EventRow, KddError, MIGRATIONS, PRIORITIES, type ParsedDecision, type Priority, type RecallHit, STATUSES, type Status, TRANSITIONS, type Task, type TaskDetailCapped, type TaskListRow, type Track, addCriterion, addDecision, addTask, appendEvent, archiveTask, authorOf, blockTask, boardData, capText, checkMove, commentTask, contentHash, createTrack, deleteTrack, editTask, editTrack, exportBoard, kddHome, linkTasks, listCriteria, listProjects, listTracks, logError, moveTask, mustGetTask, mustGetTrack, now, openDb, parseDecisionMd, placeTask, rebuild, recall, removeCriterion, renderDecisionBody, renderDecisionMd, resolveDbPath, resolveDecisionsDir, sanitizeQuery, setCriterionChecked, slugify, statusDigest, syncIndex, taskDetail, taskDetailCapped, unarchiveTask, unblockTask };
+declare const DEFAULT_TTL: number;
+declare const MAX_FAILED_ATTEMPTS = 3;
+declare function recordFailedAttempt(db: Database.Database, id: number, actor: Actor, reason: string): void;
+declare function releaseClaim(db: Database.Database, id: number, actor: Actor, reason: string): void;
+declare function reclaimExpired(db: Database.Database): number[];
+declare function claimTask(db: Database.Database, id: number, actor: Actor, ttl?: number): {
+    ok: true;
+    task: Task;
+} | {
+    ok: false;
+    error: string;
+};
+declare function claimNext(db: Database.Database, actor: Actor, ttl?: number, opts?: {
+    reclaim?: boolean;
+}): Task | null;
+declare function renewClaim(db: Database.Database, id: number, actor: Actor, ttl?: number): {
+    ok: true;
+    task: Task;
+} | {
+    ok: false;
+    error: string;
+};
+
+interface TickResult {
+    reclaimed: number;
+    spawned: number;
+    active: number;
+}
+type SpawnFn = (taskId: number, workerId: string, projectDir: string) => void;
+declare function tick(db: Database.Database, opts: {
+    maxWorkers: number;
+    ttl: number;
+    projectDir: string;
+    spawn: SpawnFn;
+}): TickResult;
+
+type AgentEventKind = 'run_start' | 'text' | 'tool_start' | 'tool_finish' | 'error' | 'run_end';
+interface AgentEvent {
+    id: number;
+    task_id: number;
+    worker_id: string;
+    kind: AgentEventKind;
+    name: string | null;
+    detail: string | null;
+    created_at: number;
+}
+interface ParsedEvent {
+    kind: AgentEventKind;
+    name?: string;
+    detail?: object;
+}
+declare function parseClaudeStreamLine(line: string): ParsedEvent[];
+declare function appendAgentEvent(db: Database.Database, taskId: number, workerId: string, kind: AgentEventKind, opts?: {
+    name?: string;
+    detail?: object;
+}): number;
+declare function listAgentEvents(db: Database.Database, taskId: number, opts?: {
+    sinceId?: number;
+    limit?: number;
+}): AgentEvent[];
+declare function lastAgentEventKind(db: Database.Database, taskId: number, workerId: string): AgentEventKind | null;
+interface RunResult {
+    before: string;
+    after: string;
+    committed: boolean;
+}
+declare function runProduced(db: Database.Database, taskId: number): RunResult | null;
+
+declare function worktreePath(dbPath: string, taskId: number, title: string): string;
+declare function headCommit(repoRoot: string): string;
+declare function taskBranchHead(repoRoot: string, taskId: number): string | null;
+declare function ensureWorktree(repoRoot: string, dbPath: string, taskId: number, title: string): string;
+declare function sweepWorktrees(db: Database.Database, repoRoot: string): number;
+
+export { type Actor, type AgentEvent, type AgentEventKind, CAPS, type Comment, type Criterion, DEFAULT_TTL, type DecisionInput, type EventRow, KddError, MAX_FAILED_ATTEMPTS, MIGRATIONS, PRIORITIES, PRIORITY_ORDER, type ParsedDecision, type ParsedEvent, type Priority, type RecallHit, type RunResult, STATUSES, type SpawnFn, type Status, TRANSITIONS, type Task, type TaskDetailCapped, type TaskListRow, type TickResult, type Track, addCriterion, addDecision, addTask, appendAgentEvent, appendEvent, archiveTask, authorOf, blockTask, boardData, capText, checkMove, claimNext, claimTask, commentTask, contentHash, createTrack, deleteTrack, editTask, editTrack, ensureWorktree, exportBoard, headCommit, kddHome, lastAgentEventKind, linkTasks, listAgentEvents, listCriteria, listProjects, listTracks, logError, moveTask, mustGetTask, mustGetTrack, now, openDb, parseClaudeStreamLine, parseDecisionMd, placeTask, rebuild, recall, reclaimExpired, recordFailedAttempt, releaseClaim, removeCriterion, renderDecisionBody, renderDecisionMd, renewClaim, resolveDbPath, resolveDecisionsDir, resolveToplevel, runProduced, sanitizeQuery, setCriterionChecked, slugify, statusDigest, sweepWorktrees, syncIndex, taskBranchHead, taskDetail, taskDetailCapped, tick, unarchiveTask, unblockTask, worktreePath };

@@ -128,10 +128,14 @@ export function moveTask(
   checkStatus(to);
   return db.transaction(() => {
     const t = mustGetTask(db, id);
-    const res = checkMove(t.status, to, actor, reason, openCriteria(db, id));
+    const res = checkMove(t.status, to, actor, reason, openCriteria(db, id), t.claimed_by);
     if (!res.ok) throw new KddError(res.error);
-    db.prepare(`UPDATE tasks SET status = ?, position = ?, updated_at = ? WHERE id = ?`)
-      .run(to, nextPosition(db, to), now(), id); // CLI-move дописывает в конец колонки
+    const leaving = t.status === 'in_progress' && to !== 'in_progress';
+    const reset = to === 'review'; // достигли review = продуктивный прогресс, обнуляем счётчик неудач
+    db.prepare(
+      `UPDATE tasks SET status = ?, position = ?, updated_at = ?${leaving ? ', claimed_by = NULL, claim_expires = NULL' : ''}${reset ? ', failed_attempts = 0' : ''}
+       WHERE id = ?`,
+    ).run(to, nextPosition(db, to), now(), id); // CLI-move дописывает в конец колонки; выход из in_progress снимает claim
     appendEvent(db, id, actor, 'moved',
       reason ? { from: t.status, to, reason } : { from: t.status, to });
     if (reason) {
@@ -152,14 +156,18 @@ export function placeTask(
   return db.transaction(() => {
     const t = mustGetTask(db, id);
     if (t.status !== to) {
-      const res = checkMove(t.status, to, actor, undefined, openCriteria(db, id));
+      const res = checkMove(t.status, to, actor, undefined, openCriteria(db, id), t.claimed_by);
       if (!res.ok) throw new KddError(res.error);
       appendEvent(db, id, actor, 'moved', { from: t.status, to });
     }
     const setPos = db.prepare(`UPDATE tasks SET position = ? WHERE id = ?`);
     orderedIds.forEach((tid, i) => setPos.run(i, tid));
-    db.prepare(`UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?`)
-      .run(to, now(), id);
+    const leaving = t.status === 'in_progress' && to !== 'in_progress';
+    const reset = to === 'review';
+    db.prepare(
+      `UPDATE tasks SET status = ?, updated_at = ?${leaving ? ', claimed_by = NULL, claim_expires = NULL' : ''}${reset ? ', failed_attempts = 0' : ''}
+       WHERE id = ?`,
+    ).run(to, now(), id);
     return mustGetTask(db, id);
   })();
 }

@@ -8,6 +8,7 @@ import {
 } from '../src/claim.js';
 import { now } from '../src/db.js';
 import { KddError } from '../src/errors.js';
+import { lastAgentEventKind, appendAgentEvent, runProduced } from '../src/agent_events.js';
 
 let db: Database.Database;
 beforeEach(() => { db = openDb(':memory:', 'p'); });
@@ -259,5 +260,90 @@ describe('failure accounting', () => {
     expect(t.status).toBe('new');
     expect(t.claimed_by).toBeNull();
     expect(t.failed_attempts).toBe(1);
+  });
+});
+
+describe('reclaimExpired closes orphaned agent-runs', () => {
+  // helper: claim under a tick-worker actor, then force the lease expired.
+  // claimed_by = 'ai:tick:1-0'  →  agent_events worker_id = 'tick:1-0'
+  const tickActor = { type: 'ai' as const, id: 'tick:1-0' };
+  const expireTick = (title = 't') => {
+    const id = withCriteria(title);
+    claimTask(db, id, tickActor, 900);
+    db.prepare(`UPDATE tasks SET claim_expires = ? WHERE id = ?`).run(now() - 1, id);
+    return id;
+  };
+
+  it('died mid-run (dangling run_start) → writes error + run_end', () => {
+    const id = expireTick();
+    appendAgentEvent(db, id, 'tick:1-0', 'run_start', { detail: { head: 'aaa' } });
+    reclaimExpired(db);
+    const evs = db.prepare(
+      `SELECT kind, detail FROM agent_events WHERE task_id=? AND worker_id='tick:1-0' ORDER BY id`,
+    ).all(id) as { kind: string; detail: string }[];
+    expect(evs.map((e) => e.kind)).toEqual(['run_start', 'error', 'run_end']);
+    expect(JSON.parse(evs[1].detail).message).toMatch(/died/);
+    expect(JSON.parse(evs[2].detail)).toEqual({ exitCode: null });
+    expect(lastAgentEventKind(db, id, 'tick:1-0')).toBe('run_end');
+    // синтетический run_end без head → runProduced null (контракт #9: убитый ран = unknown, не действовать)
+    expect(runProduced(db, id)).toBeNull();
+  });
+
+  it('never started (no agent_events) → writes error ONLY, no run_end', () => {
+    const id = expireTick();
+    reclaimExpired(db);
+    const evs = db.prepare(
+      `SELECT kind, detail FROM agent_events WHERE task_id=? AND worker_id='tick:1-0' ORDER BY id`,
+    ).all(id) as { kind: string; detail: string }[];
+    // рана не было (нет run_start) → закрывать нечего. Только error: run_end-сирота без run_start
+    // спарился бы в task-scoped runProduced с run_start предыдущего воркера и замаскировал его результат.
+    expect(evs.map((e) => e.kind)).toEqual(['error']);
+    expect(JSON.parse(evs[0].detail).message).toMatch(/never started/);
+  });
+
+  it('never-started reclaim does NOT mask a prior worker\'s committed run', () => {
+    // воркер A: завершённый закоммиченный ран (run_start head=A, run_end head=B).
+    const id = withCriteria('t');
+    claimTask(db, id, { type: 'ai', id: 'tick:1-0' }, 900);
+    appendAgentEvent(db, id, 'tick:1-0', 'run_start', { detail: { head: 'A' } });
+    appendAgentEvent(db, id, 'tick:1-0', 'run_end', { detail: { exitCode: 0, head: 'B' } });
+    db.prepare(`UPDATE tasks SET claim_expires = ? WHERE id = ?`).run(now() - 1, id);
+    reclaimExpired(db); // reclaim воркера A: last=run_end → guard, ничего не пишет
+    // задача снова взята воркером B, который не стартовал, и его lease истёк
+    claimTask(db, id, { type: 'ai', id: 'tick:2-0' }, 900);
+    db.prepare(`UPDATE tasks SET claim_expires = ? WHERE id = ?`).run(now() - 1, id);
+    reclaimExpired(db); // reclaim воркера B: never-started → только error, НЕ run_end-сирота
+    // результат рана A цел: без сиротского run_end runProduced видит настоящий run_end (head=B)
+    expect(runProduced(db, id)).toEqual({ before: 'A', after: 'B', committed: true });
+  });
+
+  it('already-closed run → no second run_end', () => {
+    const id = expireTick();
+    appendAgentEvent(db, id, 'tick:1-0', 'run_start', { detail: { head: 'aaa' } });
+    appendAgentEvent(db, id, 'tick:1-0', 'run_end', { detail: { exitCode: 0, head: 'aaa' } });
+    reclaimExpired(db);
+    const kinds = (db.prepare(
+      `SELECT kind FROM agent_events WHERE task_id=? AND worker_id='tick:1-0' ORDER BY id`,
+    ).all(id) as { kind: string }[]).map((e) => e.kind);
+    expect(kinds).toEqual(['run_start', 'run_end']); // guard: не добавили второй run_end
+  });
+
+  it('non-tick lease → no synthetic agent_events', () => {
+    const id = withCriteria('t');
+    claimTask(db, id, ai, 900); // ai = {type:'ai', id:'s1'} → claimed_by 'ai:s1' (не tick)
+    db.prepare(`UPDATE tasks SET claim_expires = ? WHERE id = ?`).run(now() - 1, id);
+    reclaimExpired(db);
+    const n = (db.prepare(`SELECT COUNT(*) c FROM agent_events WHERE task_id=?`).get(id) as any).c;
+    expect(n).toBe(0);
+  });
+
+  it('run-close write failure does not roll back the reclaim (best-effort)', () => {
+    const id = expireTick();
+    appendAgentEvent(db, id, 'tick:1-0', 'run_start', { detail: { head: 'aaa' } }); // died mid-run
+    db.exec('DROP TABLE agent_events'); // форсим реальный провал INSERT'а в closeOrphanRun
+    expect(() => reclaimExpired(db)).not.toThrow();
+    // задача всё равно реклейм: closeOrphanRun упал, но try/catch не дал ему откатить sweep
+    expect(db.prepare(`SELECT status, claimed_by FROM tasks WHERE id=?`).get(id))
+      .toEqual({ status: 'new', claimed_by: null });
   });
 });

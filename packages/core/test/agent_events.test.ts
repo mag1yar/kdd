@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { openDb, parseClaudeStreamLine, appendAgentEvent, listAgentEvents, taskDetail, addTask, runProduced } from '../src/index.js';
+import { openDb, parseClaudeStreamLine, appendAgentEvent, listAgentEvents, taskDetail, addTask, runProduced, lastAgentEventKind } from '../src/index.js';
 
 function db() {
   const d = openDb(':memory:');
@@ -117,5 +117,25 @@ describe('runProduced', () => {
     appendAgentEvent(d, 1, 'w1', 'run_end', { detail: { head: 'bbb' } });
     appendAgentEvent(d, 1, 'w2', 'run_start', { detail: { head: 'bbb' } }); // committed ccc, then SIGKILL — no run_end
     expect(runProduced(d, 1)).toBeNull();
+  });
+});
+
+describe('lastAgentEventKind', () => {
+  it('returns the newest kind for a (task, worker) pair', () => {
+    const d = db();
+    appendAgentEvent(d, 1, 'w1', 'run_start', { detail: { head: 'aaa' } });
+    appendAgentEvent(d, 1, 'w1', 'text', { detail: { text: 'hi' } });
+    expect(lastAgentEventKind(d, 1, 'w1')).toBe('text');
+  });
+
+  it('null when the worker has no events', () => {
+    const d = db();
+    expect(lastAgentEventKind(d, 1, 'w1')).toBeNull();
+  });
+
+  it('scopes to the given worker_id', () => {
+    const d = db();
+    appendAgentEvent(d, 1, 'w1', 'run_end', { detail: { exitCode: 0 } });
+    expect(lastAgentEventKind(d, 1, 'w2')).toBeNull(); // другой воркер — не видит w1
   });
 });

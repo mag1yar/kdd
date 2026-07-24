@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { openDb, addTask } from '../src/index.js';
-import { tick, addCriterion, setCriterionChecked } from '../src/index.js';
+import {
+  tick, addCriterion, setCriterionChecked, claimTask, reclaimExpired, appendAgentEvent, lastAgentEventKind, now,
+} from '../src/index.js';
 
 describe('failed_attempts column', () => {
   it('defaults to 0 on a new task', () => {
@@ -58,5 +60,21 @@ describe('tick', () => {
     expect(t.status).toBe('new');
     expect(t.claimed_by).toBeNull();
     expect(t.failed_attempts).toBe(1);
+  });
+
+  it('reclaims a dead ai:tick lease and closes its orphaned run', () => {
+    const db = openDb(':memory:');
+    const id = readyTask(db, 'a');
+    // спаунить воркера через tick (claim под tick-токеном), затем эмулировать смерть: висячий run_start
+    let workerId = '';
+    tick(db, { maxWorkers: 1, ttl: 1800, projectDir: '/tmp',
+      spawn: (_t, w) => { workerId = w; } }); // claimed_by = ai:<workerId>
+    appendAgentEvent(db, id, workerId, 'run_start', { detail: { head: 'aaa' } });
+    // форсим истечение lease и реклеймим (как boot-reaper в начале следующего tick)
+    db.prepare(`UPDATE tasks SET claim_expires = ? WHERE id = ?`).run(now() - 1, id);
+    expect(reclaimExpired(db)).toEqual([id]);
+    const t = db.prepare(`SELECT status, claimed_by FROM tasks WHERE id=?`).get(id);
+    expect(t).toEqual({ status: 'new', claimed_by: null });
+    expect(lastAgentEventKind(db, id, workerId)).toBe('run_end'); // ран закрыт
   });
 });

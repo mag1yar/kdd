@@ -60,6 +60,17 @@ export function listAgentEvents(
   ).all(taskId, opts?.sinceId ?? 0, opts?.limit ?? 500) as AgentEvent[];
 }
 
+// Тип новейшего agent_event для (task, worker) — или null, если событий нет.
+// Проба формы осиротевшего рана: 'run_end' → уже закрыт; иное → висячий; null → не стартовал.
+export function lastAgentEventKind(
+  db: Database.Database, taskId: number, workerId: string,
+): AgentEventKind | null {
+  const r = db.prepare(
+    `SELECT kind FROM agent_events WHERE task_id = ? AND worker_id = ? ORDER BY id DESC LIMIT 1`,
+  ).get(taskId, workerId) as { kind: AgentEventKind } | undefined;
+  return r?.kind ?? null;
+}
+
 export interface RunResult { before: string; after: string; committed: boolean }
 
 // Результат ПОСЛЕДНЕГО рана задачи: снял ли он коммиты (before_head != after_head).

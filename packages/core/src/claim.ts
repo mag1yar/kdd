@@ -5,6 +5,7 @@ import { appendEvent, authorOf, mustGetTask } from './ops.js';
 import { KddError } from './errors.js';
 import { PRIORITY_ORDER } from './queries.js';
 import type { Task } from './types.js';
+import { appendAgentEvent, lastAgentEventKind } from './agent_events.js';
 
 export const DEFAULT_TTL = 15 * 60; // сек; hermes-дефолт, override через --ttl
 const SYSTEM: Actor = { type: 'ai', id: 'system' }; // provenance ленивого reclaim (не притворяемся владельцем)
@@ -70,9 +71,37 @@ export function reclaimExpired(db: Database.Database): number[] {
     // только tick-спауны штрафуем: долгая/ручная user-claim, истёкшая по TTL, не должна авто-блокироваться
     if (e.claimed_by?.startsWith('ai:tick:')) {
       recordFailedAttempt(db, e.id, SYSTEM, 'lease expired without progress');
+      // observability best-effort: закрытие осиротевшего рана НЕ должно ронять reclaim.
+      // appendAgentEvent открывает вложенный savepoint — его падение откатывает ТОЛЬКО себя;
+      // без catch оно бы пробилось наружу и откатило весь sweep (задачи застряли бы in_progress).
+      // Реклейм задачи (clear + reclaimed event) уже закоммичен выше — он durable, feed-запись нет.
+      try { closeOrphanRun(db, e.id, e.claimed_by); } catch { /* run-close потерян, задача всё равно reclaimed */ }
     }
   }
   return expired.map((e) => e.id);
+}
+
+// observability: закрыть осиротевший agent-run reclaim'нутого воркера, чтобы feed не показывал
+// мёртвого воркера вечно-активным. worker_id = claimed_by без 'ai:' (spawnWorker ставит
+// KDD_SESSION=tick:<nonce>-<i>, а claimed_by = authorOf → ai:tick:...).
+function closeOrphanRun(db: Database.Database, taskId: number, claimedBy: string): void {
+  const wid = claimedBy.slice(3); // 'ai:'.length — ai:tick:.. → tick:..
+  const last = lastAgentEventKind(db, taskId, wid);
+  if (last === 'run_end') return; // воркер уже закрыл ран сам — не дублируем
+  if (last === null) {
+    // воркер вообще не стартовал (spawn/worktree fail до run_start): рана нет — закрывать нечего.
+    // Пишем ТОЛЬКО error (причина для feed). НЕ run_end: run_end без своего run_start — сирота,
+    // а runProduced task-scoped спарил бы его с run_start ПРЕДЫДУЩего воркера и вернул null,
+    // замаскировав результат того завершённого рана. Нет run_start → нет run_end.
+    appendAgentEvent(db, taskId, wid, 'error',
+      { detail: { message: 'worker never started (spawn or worktree setup failed) — lease expired, reclaimed by driver' } });
+    return;
+  }
+  // висячий run_start (или text/tool_* мид-стрим): воркер стартовал и умер. Закрываем ран.
+  // head в run_end НЕ пишем: commit-state убитого воркера неизвестен → runProduced=null (контракт #9).
+  appendAgentEvent(db, taskId, wid, 'error',
+    { detail: { message: 'worker died (SIGKILL/OOM/reboot) — lease expired, reclaimed by driver' } });
+  appendAgentEvent(db, taskId, wid, 'run_end', { detail: { exitCode: null } });
 }
 
 export function claimTask(

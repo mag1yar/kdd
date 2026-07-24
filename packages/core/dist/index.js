@@ -907,6 +907,88 @@ function exportBoard(db) {
   };
 }
 
+// src/agent_events.ts
+function parseClaudeStreamLine(line) {
+  const s = line.trim();
+  if (!s) return [];
+  let msg;
+  try {
+    msg = JSON.parse(s);
+  } catch {
+    return [];
+  }
+  if (msg?.type === "assistant" && Array.isArray(msg.message?.content)) {
+    const out = [];
+    for (const b of msg.message.content) {
+      if (b?.type === "text" && typeof b.text === "string") out.push({ kind: "text", detail: { text: b.text } });
+      else if (b?.type === "tool_use") out.push({ kind: "tool_start", name: b.name, detail: { input: b.input } });
+    }
+    return out;
+  }
+  if (msg?.type === "user" && Array.isArray(msg.message?.content)) {
+    const out = [];
+    for (const b of msg.message.content) {
+      if (b?.type === "tool_result") out.push({ kind: "tool_finish", detail: { output: b.content, isError: !!b.is_error } });
+    }
+    return out;
+  }
+  return [];
+}
+function appendAgentEvent(db, taskId, workerId, kind, opts) {
+  return db.transaction(() => {
+    const r = db.prepare(
+      `INSERT INTO agent_events (task_id, worker_id, kind, name, detail, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    ).run(
+      taskId,
+      workerId,
+      kind,
+      opts?.name ?? null,
+      opts?.detail ? JSON.stringify(opts.detail) : null,
+      now()
+    );
+    return Number(r.lastInsertRowid);
+  })();
+}
+function listAgentEvents(db, taskId, opts) {
+  return db.prepare(
+    `SELECT * FROM agent_events WHERE task_id = ? AND id > ? ORDER BY id LIMIT ?`
+  ).all(taskId, opts?.sinceId ?? 0, opts?.limit ?? 500);
+}
+function lastAgentEventKind(db, taskId, workerId) {
+  const r = db.prepare(
+    `SELECT kind FROM agent_events WHERE task_id = ? AND worker_id = ? ORDER BY id DESC LIMIT 1`
+  ).get(taskId, workerId);
+  return r?.kind ?? null;
+}
+function runProduced(db, taskId) {
+  const end = db.prepare(
+    `SELECT id, detail FROM agent_events WHERE task_id = ? AND kind = 'run_end' ORDER BY id DESC LIMIT 1`
+  ).get(taskId);
+  if (!end) return null;
+  const dangling = db.prepare(
+    `SELECT 1 FROM agent_events WHERE task_id = ? AND kind = 'run_start' AND id > ? LIMIT 1`
+  ).get(taskId, end.id);
+  if (dangling) return null;
+  const start = db.prepare(
+    `SELECT detail FROM agent_events WHERE task_id = ? AND kind = 'run_start' AND id < ? ORDER BY id DESC LIMIT 1`
+  ).get(taskId, end.id);
+  if (!start) return null;
+  const before = headOf(start.detail);
+  const after = headOf(end.detail);
+  if (before === null || after === null) return null;
+  return { before, after, committed: before !== after };
+}
+function headOf(detail) {
+  if (!detail) return null;
+  try {
+    const h = JSON.parse(detail).head;
+    return typeof h === "string" ? h : null;
+  } catch {
+    return null;
+  }
+}
+
 // src/claim.ts
 var DEFAULT_TTL = 15 * 60;
 var SYSTEM = { type: "ai", id: "system" };
@@ -955,9 +1037,36 @@ function reclaimExpired(db) {
     appendEvent(db, e.id, SYSTEM, "reclaimed", { former: e.claimed_by }, { type: "claim", level: "warn" });
     if (e.claimed_by?.startsWith("ai:tick:")) {
       recordFailedAttempt(db, e.id, SYSTEM, "lease expired without progress");
+      try {
+        closeOrphanRun(db, e.id, e.claimed_by);
+      } catch {
+      }
     }
   }
   return expired.map((e) => e.id);
+}
+function closeOrphanRun(db, taskId, claimedBy) {
+  const wid = claimedBy.slice(3);
+  const last = lastAgentEventKind(db, taskId, wid);
+  if (last === "run_end") return;
+  if (last === null) {
+    appendAgentEvent(
+      db,
+      taskId,
+      wid,
+      "error",
+      { detail: { message: "worker never started (spawn or worktree setup failed) \u2014 lease expired, reclaimed by driver" } }
+    );
+    return;
+  }
+  appendAgentEvent(
+    db,
+    taskId,
+    wid,
+    "error",
+    { detail: { message: "worker died (SIGKILL/OOM/reboot) \u2014 lease expired, reclaimed by driver" } }
+  );
+  appendAgentEvent(db, taskId, wid, "run_end", { detail: { exitCode: null } });
 }
 function claimTask(db, id, actor, ttl = DEFAULT_TTL) {
   assertTtl(ttl);
@@ -1060,82 +1169,6 @@ function tick(db, opts) {
     }
   }
   return { reclaimed, spawned, active };
-}
-
-// src/agent_events.ts
-function parseClaudeStreamLine(line) {
-  const s = line.trim();
-  if (!s) return [];
-  let msg;
-  try {
-    msg = JSON.parse(s);
-  } catch {
-    return [];
-  }
-  if (msg?.type === "assistant" && Array.isArray(msg.message?.content)) {
-    const out = [];
-    for (const b of msg.message.content) {
-      if (b?.type === "text" && typeof b.text === "string") out.push({ kind: "text", detail: { text: b.text } });
-      else if (b?.type === "tool_use") out.push({ kind: "tool_start", name: b.name, detail: { input: b.input } });
-    }
-    return out;
-  }
-  if (msg?.type === "user" && Array.isArray(msg.message?.content)) {
-    const out = [];
-    for (const b of msg.message.content) {
-      if (b?.type === "tool_result") out.push({ kind: "tool_finish", detail: { output: b.content, isError: !!b.is_error } });
-    }
-    return out;
-  }
-  return [];
-}
-function appendAgentEvent(db, taskId, workerId, kind, opts) {
-  return db.transaction(() => {
-    const r = db.prepare(
-      `INSERT INTO agent_events (task_id, worker_id, kind, name, detail, created_at)
-       VALUES (?, ?, ?, ?, ?, ?)`
-    ).run(
-      taskId,
-      workerId,
-      kind,
-      opts?.name ?? null,
-      opts?.detail ? JSON.stringify(opts.detail) : null,
-      now()
-    );
-    return Number(r.lastInsertRowid);
-  })();
-}
-function listAgentEvents(db, taskId, opts) {
-  return db.prepare(
-    `SELECT * FROM agent_events WHERE task_id = ? AND id > ? ORDER BY id LIMIT ?`
-  ).all(taskId, opts?.sinceId ?? 0, opts?.limit ?? 500);
-}
-function runProduced(db, taskId) {
-  const end = db.prepare(
-    `SELECT id, detail FROM agent_events WHERE task_id = ? AND kind = 'run_end' ORDER BY id DESC LIMIT 1`
-  ).get(taskId);
-  if (!end) return null;
-  const dangling = db.prepare(
-    `SELECT 1 FROM agent_events WHERE task_id = ? AND kind = 'run_start' AND id > ? LIMIT 1`
-  ).get(taskId, end.id);
-  if (dangling) return null;
-  const start = db.prepare(
-    `SELECT detail FROM agent_events WHERE task_id = ? AND kind = 'run_start' AND id < ? ORDER BY id DESC LIMIT 1`
-  ).get(taskId, end.id);
-  if (!start) return null;
-  const before = headOf(start.detail);
-  const after = headOf(end.detail);
-  if (before === null || after === null) return null;
-  return { before, after, committed: before !== after };
-}
-function headOf(detail) {
-  if (!detail) return null;
-  try {
-    const h = JSON.parse(detail).head;
-    return typeof h === "string" ? h : null;
-  } catch {
-    return null;
-  }
 }
 
 // src/worktree.ts
@@ -1261,6 +1294,7 @@ export {
   exportBoard,
   headCommit,
   kddHome,
+  lastAgentEventKind,
   linkTasks,
   listAgentEvents,
   listCriteria,

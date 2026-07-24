@@ -36,8 +36,14 @@ function readBody(opts: { body?: string; bodyFile?: string }): string | undefine
 const WORKER_PROMPT = process.env.KDD_WORKER_PROMPT ??
   `You are a kdd agent worker. Read your task: run \`kdd show $KDD_TASK_ID\`. ` +
   `Do the work in this repository. Renew your lease periodically with \`kdd claim $KDD_TASK_ID --renew\` — ` +
-  `if that errors you have LOST the lease, stop immediately. When done, check acceptance criteria ` +
-  `(\`kdd criteria check\`), then \`kdd move $KDD_TASK_ID review\`.`;
+  `if that errors you have LOST the lease, stop immediately. ` +
+  // комментарий = durable-канал: он в taskDetail (get_task/kdd show), его читают люди и будущие
+  // сессии. Activity-фид туда НЕ входит намеренно (не засоряет LLM-контекст). Потому итог — в коммент.
+  `When done, leave ONE concise summary comment ` +
+  `(\`kdd comment $KDD_TASK_ID "<what you changed and why; caveats or follow-ups>"\`) — this is the ` +
+  `durable note humans and future sessions read, so keep it tight, not a log. Then check acceptance ` +
+  `criteria (\`kdd criteria check\`) and \`kdd move $KDD_TASK_ID review\`. ` +
+  `If you get blocked or must stop early, comment the reason first.`;
 
 const DEFAULT_SPAWN_CMD = `kdd worker "$KDD_TASK_ID"`;
 
